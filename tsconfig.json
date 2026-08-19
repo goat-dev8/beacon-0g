@@ -1,0 +1,16 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/quote" },
+    { "path": "packages/compute" },
+    { "path": "packages/tee" },
+    { "path": "packages/storage" },
+    { "path": "packages/swap" },
+    { "path": "packages/receipts" },
+    { "path": "packages/execution" },
+    { "path": "packages/mcp" },
+    { "path": "apps/api" },
+    { "path": "services/settler" }
+  ]
+}
