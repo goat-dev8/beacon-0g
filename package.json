@@ -1,0 +1,54 @@
+{
+  "name": "beacon-0g",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Beacon on 0G Aristotle: native 0G jobs, TeeML policy, Storage evidence, Zia swaps.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/quote",
+    "packages/compute",
+    "packages/tee",
+    "packages/storage",
+    "packages/swap",
+    "packages/receipts",
+    "packages/execution",
+    "packages/mcp",
+    "apps/api",
+    "apps/web",
+    "services/settler"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "typecheck": "tsc -b --pretty false",
+    "test:contracts": "forge test --root packages/contracts",
+    "guard": "node scripts/guard-fallbacks.mjs",
+    "ci": "npm run guard && npm run typecheck && npm run test && npm run test:contracts",
+    "smoke:mainnet": "tsx scripts/smoke-mainnet.ts",
+    "smoke:storage-swap": "tsx scripts/smoke-storage-swap.ts",
+    "smoke:erc8004": "tsx scripts/erc8004-register.ts",
+    "smoke:image": "tsx scripts/smoke-image.ts",
+    "smoke:tee": "tsx scripts/smoke-tee.ts",
+    "validate:production": "tsx scripts/validate-production.ts",
+    "api": "tsx apps/api/src/index.ts",
+    "settler": "tsx services/settler/src/index.ts",
+    "web": "npm run dev -w @beacon/web"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
+    "pg": "^8.22.0",
+    "tsx": "^4.19.4",
+    "zod": "^4.4.3"
+  }
+}
