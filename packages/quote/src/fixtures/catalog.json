@@ -1,0 +1,213 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "address": "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D",
+      "canonical_id": "glm-5.2",
+      "model_id": "glm-5.2",
+      "name": "glm-5.2",
+      "service_type": "chatbot",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "5490000000000",
+        "completion": "18300000000000",
+        "cached_prompt": "1098000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0.0000009",
+        "completion": "0.000003"
+      },
+      "verifiability": "TeeML",
+      "trust_mode": "private",
+      "supported_parameters": ["tools", "response_format", "max_tokens"],
+      "architecture": {
+        "input_modalities": ["text"],
+        "output_modalities": ["text"]
+      }
+    },
+    {
+      "address": "0xe4d9768112BFe24112e2E0433FE1F4F452fcB6eb",
+      "canonical_id": "glm-5.3",
+      "model_id": "glm-5.3",
+      "name": "glm-5.3",
+      "service_type": "chatbot",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "8540000000000",
+        "completion": "26870000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0.0000014",
+        "completion": "0.0000044"
+      },
+      "verifiability": "TeeTLS",
+      "trust_mode": "verified",
+      "supported_parameters": ["tools", "response_format"],
+      "architecture": {
+        "input_modalities": ["text"],
+        "output_modalities": ["text"]
+      }
+    },
+    {
+      "address": "0x1111111111111111111111111111111111111111",
+      "canonical_id": "glm-5.3-flash",
+      "model_id": "glm-5.3-flash",
+      "name": "glm-5.3-flash",
+      "service_type": "chatbot",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "670000000000",
+        "completion": "2010000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0.00000011",
+        "completion": "0.00000033"
+      },
+      "verifiability": "TeeTLS",
+      "trust_mode": "verified",
+      "supported_parameters": ["tools", "response_format"],
+      "architecture": {
+        "input_modalities": ["text"],
+        "output_modalities": ["text"]
+      }
+    },
+    {
+      "address": "0x4870CbC4D07d6Ac2EE5aA865588e5985FE77a4E9",
+      "canonical_id": "0gm-1.0-35b-a3b",
+      "model_id": "0GM-1.0-35B-A3B",
+      "name": "0GM-1.0-35B-A3B",
+      "service_type": "chatbot",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "486000000000",
+        "completion": "2910000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0.00000008",
+        "completion": "0.00000048"
+      },
+      "verifiability": "TeeML",
+      "trust_mode": "private",
+      "supported_parameters": ["tools", "response_format"],
+      "architecture": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"]
+      }
+    },
+    {
+      "address": "0xE29a72c7629815Eb480aE5b1F2dfA06f06cdF974",
+      "canonical_id": "z-image-turbo",
+      "model_id": "z-image-turbo",
+      "name": "z-image-turbo",
+      "service_type": "text-to-image",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "0",
+        "completion": "0",
+        "image": "53762780000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0",
+        "completion": "0",
+        "image": "0.0088"
+      },
+      "verifiability": "TeeML",
+      "trust_mode": "private",
+      "architecture": {
+        "input_modalities": ["text"],
+        "output_modalities": ["image"]
+      }
+    },
+    {
+      "address": "0x36aCffCEa3CCe07cAdd1740Ad992dB16Ab324517",
+      "canonical_id": "whisper-large-v3",
+      "model_id": "openai/whisper-large-v3",
+      "name": "whisper-large-v3",
+      "service_type": "speech-to-text",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "793830000000000",
+        "completion": "0"
+      },
+      "pricing_usd": {
+        "prompt": "0.00013",
+        "completion": "0"
+      },
+      "verifiability": "TeeML",
+      "trust_mode": "private",
+      "architecture": {
+        "input_modalities": ["audio"],
+        "output_modalities": ["text"]
+      }
+    },
+    {
+      "address": "0xdBaf69721F1cEa392aE78cEeD588B73cedb54998",
+      "canonical_id": "bytedance/seedance-2.5",
+      "model_id": "dreamina-seedance-2-5-260628",
+      "name": "bytedance/seedance-2.5",
+      "service_type": "video-generation",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "0",
+        "completion": "65270000000000",
+        "video_unit": "video_token"
+      },
+      "pricing_usd": {
+        "prompt": "0",
+        "completion": "0.0000107"
+      },
+      "verifiability": "TeeTLS",
+      "trust_mode": "verified",
+      "architecture": {
+        "input_modalities": ["text"],
+        "output_modalities": ["video"]
+      }
+    },
+    {
+      "address": "0xB01EBd79c3fd63ff52fD47C3935119601EEe2FdB",
+      "canonical_id": "qwen3-vl-30b",
+      "model_id": "qwen/qwen3-vl-30b-a3b-instruct",
+      "name": "qwen3-vl-30b",
+      "service_type": "chatbot",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "218000000000",
+        "completion": "2180000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0.000000036",
+        "completion": "0.00000036"
+      },
+      "verifiability": "TeeTLS",
+      "trust_mode": "verified",
+      "supported_parameters": ["tools", "response_format"],
+      "architecture": {
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"]
+      }
+    },
+    {
+      "address": "0xdead000000000000000000000000000000000001",
+      "canonical_id": "gpt-5.6-sol",
+      "model_id": "gpt-5.6-sol",
+      "name": "gpt-5.6-sol",
+      "service_type": "chatbot",
+      "is_healthy": true,
+      "pricing": {
+        "prompt": "10000000000000",
+        "completion": "40000000000000"
+      },
+      "pricing_usd": {
+        "prompt": "0.000002",
+        "completion": "0.000008"
+      },
+      "verifiability": "",
+      "trust_mode": "standard",
+      "supported_parameters": ["tools"],
+      "architecture": {
+        "input_modalities": ["text"],
+        "output_modalities": ["text"]
+      }
+    }
+  ]
+}
