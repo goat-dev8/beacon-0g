@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/quote" },
+    { "path": "../../packages/compute" },
+    { "path": "../../packages/tee" },
+    { "path": "../../packages/storage" },
+    { "path": "../../packages/swap" },
+    { "path": "../../packages/receipts" },
+    { "path": "../../packages/mcp" },
+    { "path": "../../packages/execution" }
+  ]
+}
