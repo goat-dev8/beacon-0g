@@ -1,0 +1,72 @@
+import { Lock, ShieldCheck, EyeOff } from "lucide-react";
+import { SafeReveal } from "./safePrimitives";
+
+const CARDS = [
+  {
+    icon: ShieldCheck,
+    title: "How Beacon protects funds",
+    body: "You deposit a capped budget into Beacon Safe. Agents can only spend within your daily and per-trade limits, never beyond the pool you funded.",
+  },
+  {
+    icon: Lock,
+    title: "Why safer than a hot wallet",
+    body: "A connected hot wallet can approve anything. Beacon Safe is a prepaid envelope: revoke the executor, pause spending, or withdraw the rest in one move.",
+  },
+  {
+    icon: EyeOff,
+    title: "What confidential policy protects",
+    body: "Your spend rules stay off the public chat surface. Production TeeML evaluates independently (EIP-191 vs teeSignerAddress). Beacon Safe remains the spend boundary; TeeML cannot move funds.",
+  },
+] as const;
+
+export function ProtectionStory({
+  teeMode = "unavailable",
+}: {
+  teeMode?: "simulated" | "unavailable" | "verified";
+}) {
+  return (
+    <div>
+      <div className="mb-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--p-accent-text)]">
+          Protection story
+        </p>
+        <h2 className="mt-1 font-display text-xl font-semibold tracking-tight text-[var(--p-fg)]">
+          Guardrails before the AI spends
+        </h2>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {CARDS.map((card, i) => {
+          const Icon = card.icon;
+          return (
+            <SafeReveal key={card.title} delay={i * 0.06}>
+              <article className="h-full rounded-[var(--p-radius)] border border-[var(--p-border)] bg-[var(--p-surface)] p-4 sm:p-5">
+                <span className="inline-flex size-9 items-center justify-center rounded-full bg-[var(--p-accent-soft)] text-[var(--p-accent-text)]">
+                  <Icon className="size-4" strokeWidth={1.75} />
+                </span>
+                <h3 className="mt-3 font-display text-base font-semibold text-[var(--p-fg)]">
+                  {card.title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--p-muted)]">{card.body}</p>
+                {i === 2 && teeMode === "simulated" && (
+                  <p className="mt-3 inline-flex rounded-full border border-[var(--p-accent)]/40 bg-[var(--p-accent-soft)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[var(--p-accent-text)]">
+                    Confidential policy (simulated TEE)
+                  </p>
+                )}
+                {i === 2 && teeMode === "verified" && (
+                  <p className="mt-3 inline-flex rounded-full border border-[var(--p-accent)]/40 bg-[var(--p-accent-soft)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[var(--p-accent-text)]">
+                    Confidential policy (hardware TEE)
+                  </p>
+                )}
+                {i === 2 && teeMode !== "simulated" && teeMode !== "verified" && (
+                  <p className="mt-3 inline-flex rounded-full border border-[var(--p-border-strong)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-[var(--p-faint)]">
+                    Server policy · TeeML {teeMode}
+                  </p>
+                )}
+              </article>
+            </SafeReveal>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
