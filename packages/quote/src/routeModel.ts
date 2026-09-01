@@ -92,11 +92,9 @@ export function selectModel(catalog: ModelCatalog, task: ModelTask): SelectedMod
   }
 
   if (task === "cheap") {
-    const preferred = pickByIds(
-      catalog,
-      ["glm-5.3-flash", "qwen3.8-flash", "glm-5.3", "qwen3-vl-30b"],
-      (m) => isTeeTls(m) || isTeeMl(m),
-    );
+    const preferred =
+      pickByIds(catalog, ["qwen3.8-flash", "glm-5.3-flash", "glm-5.3", "qwen3-vl-30b"], (m) => isTeeTls(m)) ??
+      pickByIds(catalog, ["glm-5.3-flash", "qwen3.8-flash", "glm-5.3", "qwen3-vl-30b"], (m) => isTeeMl(m));
     const model =
       preferred ??
       cheapestChat(catalog, (m) => (isTeeTls(m) || isTeeMl(m)) && supports(m, "tools"));

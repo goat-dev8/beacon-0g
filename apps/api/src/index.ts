@@ -561,6 +561,7 @@ app.post("/v1/jobs/:id/review", async (req) => {
       target: env.BEACON_JOB_ESCROW || "escrow",
       model: job.quote.modelId,
       providerAddress: job.quote.providerAddress || undefined,
+      trustMode: job.quote.selected.trustMode,
     },
     { env, broker },
   );
@@ -695,6 +696,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
           target: env.BEACON_JOB_ESCROW || "escrow",
           model: job.quote.modelId,
           providerAddress: job.quote.providerAddress || undefined,
+          trustMode: job.quote.selected.trustMode,
         },
         { env, broker },
       );

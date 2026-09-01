@@ -80,12 +80,6 @@ async function main() {
   const lockDisplay = quote.lock0gDisplay || format0g(lock0g);
   log("quoted", { jobId, lockDisplay, model: quote.modelId || quote.breakdown?.model });
 
-  try {
-    await apiJson(`/v1/jobs/${jobId}/review`, { method: "POST", body: "{}" });
-  } catch (err) {
-    log("review", { warning: err instanceof Error ? err.message : "review failed" });
-  }
-
   const provider = new JsonRpcProvider(env.ZEROG_RPC_URL, env.CHAIN_ID);
   const wallet = new Wallet(pk, provider);
   const escrow = env.BEACON_JOB_ESCROW;
