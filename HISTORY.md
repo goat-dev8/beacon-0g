@@ -97,7 +97,7 @@ Re-check after Vercel API-base fix: SPA `/`, `/flow`, `/verify/:id` must call `b
 
 ### 8. Git
 
-Public `main` at https://github.com/goat-dev8/beacon-0g.git. CI copy lives at `scripts/github-ci.yml` because the GitHub PAT used for push lacked `workflow` scope (`.github/workflows` is not pushed with that token).
+Public `main` at https://github.com/goat-dev8/beacon-0g.git. GitHub Actions workflow is `.github/workflows/ci.yml` (green on `488aac7`).
 
 ---
 
@@ -119,12 +119,12 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | Zia `exactInputSingle` fail-closed | **DONE** | Mainnet swap txs; thin-book refuse |
 | ERC-8004 register | **DONE** | agentId `3531902` |
 | Foundry tests | **DONE** | `forge test` in repo |
-| GitHub Actions green | **NOT DONE** | Workflow file not on GitHub (`workflow` token scope). Local: vitest + guard pass |
+| GitHub Actions green | **DONE** | https://github.com/goat-dev8/beacon-0g/actions/runs/33572413870 |
 | Public git | **DONE** | goat-dev8/beacon-0g |
 | Mainnet txs + PROOF.md | **DONE** | this repo |
-| Hosted job lock→run from Flow UI | **PARTIAL** | Jobs desk now uses 0G `/v1/services` + quote + `lockNative` / Safe execute + background run/release. Needs a connected wallet on Vercel plus a second public receipt from `npm run smoke:job-loop` after this API deploy |
+| Hosted job lock→run from Flow UI | **PARTIAL** | Hosted API lock→Compute→Storage→release→receipt is **DONE** (`75dde1f5-…`, see `PROOF.md`). Jobs desk is wired to those routes. A connected-wallet click on Vercel is still needed for a UI-driven lock |
 | ≤3 min demo + X post | **NOT DONE** | Plan hour 42–48 |
-| CI on GitHub | **NOT DONE** | Same as GHA |
+| CI on GitHub | **DONE** | Same as GHA |
 
 ### Definition of Done (plan)
 
@@ -132,7 +132,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 |---|---|---|
 | 1 | User funds Safe with native 0G | **DONE** (demo wallet deposit tx) |
 | 2 | Caps work | **DONE** on-chain; Flow deny path proven in UI |
-| 3 | Job lock/refund/release visible | **DONE** on explorer; not yet a second UI-driven job |
+| 3 | Job lock/refund/release visible | **DONE** on explorer, including hosted job `75dde1f5-…` |
 | 4 | Quotes in 0G from live `pricing` | **DONE** |
 | 5 | TeeML independently verifiable | **DONE** |
 | 6 | Storage root on storagescan | **DONE** |
@@ -141,7 +141,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | 9 | `/verify` without trusting API | **DONE** |
 | 10 | ERC-8004 used or honest skip | **DONE** (register) |
 | 11 | No production mocks/fallbacks | **DONE** (guard + fail-closed) |
-| 12 | CI green | **NOT** on GitHub Actions |
+| 12 | CI green | **DONE** ([Actions](https://github.com/goat-dev8/beacon-0g/actions/runs/33572413870)) |
 | 13 | Public in-window git | **DONE** |
 | 14 | ≤3 min demo + X post | **NOT DONE** |
 | 15 | Video/x402/Agentic ID not over-claimed | **DONE** (flags off; Galileo Agentic ID not claimed) |
@@ -164,8 +164,8 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 
 ## Still not done (actionable)
 
-1. GitHub Actions: push `.github/workflows` with a PAT that has `workflow` scope; get CI green on GitHub.
-2. Full Flow UI lock → run → release: Jobs desk now talks to the 0G job API (`/v1/services`, quote, wallet lock, Safe execute). A second public receipt from hosted lock→run is still pending the live smoke after this deploy.
+1. Connected-wallet lock from the Vercel Jobs UI (API lock→run→release is proven; UI still needs a session).
+2. Hosted image job lock→run→release (`z-image-turbo` generation is proven; this loop used `qwen3.8-flash`).
 3. ≤3 minute demo + X post `#0GBridge #BuildOn0G` (plan hour 42–48).
 4. P1 polish listed above.
 5. Rename leftover `*Usdt0` fields to 0G.
@@ -182,8 +182,9 @@ npm run smoke:mainnet
 npm run smoke:storage-swap
 npm run smoke:erc8004
 npm run smoke:tee
+npm run smoke:job-loop
 ```
 
 Live API: https://beacon-0g-api.onrender.com/health  
 Live web: https://beacon-0g.vercel.app  
-Live verify: https://beacon-0g.vercel.app/verify/0xb1c5ac5abf0c7ff569c09939ce0620390fbbb41cc8ae400278af04070696ba77
+Live verify: https://beacon-0g.vercel.app/verify/75dde1f5-4e34-4839-960c-2c7f382de640

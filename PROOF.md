@@ -77,6 +77,13 @@ Checked 2026-09-01. Chain id 16661 (`eth_chainId` = `0x4115`). RPC https://evmrp
 - Web (Vercel): https://beacon-0g.vercel.app
 - Health: https://beacon-0g-api.onrender.com/health
 - Verify: https://beacon-0g.vercel.app/verify/0xb1c5ac5abf0c7ff569c09939ce0620390fbbb41cc8ae400278af04070696ba77
+- Hosted job loop (2026-09-02): job `75dde1f5-4e34-4839-960c-2c7f382de640` (`qwen3.8-flash`, lock 0.001 0G)
+  - lock: https://chainscan.0g.ai/tx/0xc6f3506dfeaa9b0225cd016c861969d7d9e24437af1065ff57b097601cd07639
+  - release: https://chainscan.0g.ai/tx/0x899804219d9b2b19ad4049450c0ae823425acbaff68dcf02875b97027de8b79d
+  - receipt: https://chainscan.0g.ai/tx/0x41c2c961c20119bb82d302edd1c1fce6c7540da1c852bbac480901614d0e0f65
+  - storage root `0x9f3d977891599ebc04cc9e5fe46f33c3081a959edad9b6d3cff5acc96955333b`
+  - verify: https://beacon-0g.vercel.app/verify/75dde1f5-4e34-4839-960c-2c7f382de640
+- GitHub Actions: https://github.com/goat-dev8/beacon-0g/actions/runs/33572413870 (green)
 - Render static web was suspended; original Flare Beacon deploys were not modified.
 
 ## How to reproduce (no secrets in git)
@@ -85,4 +92,5 @@ npm run smoke:mainnet
 npm run smoke:storage-swap
 npm run smoke:erc8004
 npm run smoke:tee
+npm run smoke:job-loop
 ```
