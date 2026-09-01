@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      - name: Guard banned fallbacks
+        run: node scripts/guard-fallbacks.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+        continue-on-error: false
+
+      - name: Vitest
+        run: npx vitest run
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install forge-std
+        working-directory: packages/contracts
+        run: |
+          if [ ! -f lib/forge-std/src/Test.sol ]; then
+            git clone --depth 1 https://github.com/foundry-rs/forge-std.git lib/forge-std
+          fi
+
+      - name: Forge test
+        working-directory: packages/contracts
+        run: forge test
