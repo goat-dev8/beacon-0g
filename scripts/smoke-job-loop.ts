@@ -61,11 +61,18 @@ async function main() {
   const health = await apiJson("/health");
   log("health", { chainId: health.chainId, api: API });
 
+  const serviceId = process.argv[2] || "research";
+  const briefText =
+    process.argv.slice(3).join(" ").trim() ||
+    (serviceId === "image"
+      ? "A single lighthouse on a dark coast, geometric, no text, night."
+      : "One sentence: what is 0G Aristotle chain id 16661?");
+
   const created = await apiJson("/v1/jobs", {
     method: "POST",
     body: JSON.stringify({
-      serviceId: "research",
-      briefText: "One sentence: what is 0G Aristotle chain id 16661?",
+      serviceId,
+      briefText,
     }),
   });
   const jobId = String(created.jobId);
@@ -114,18 +121,25 @@ async function main() {
   if (status !== "CLOSED") {
     await apiJson(`/v1/jobs/${jobId}/release`, { method: "POST", body: "{}" });
   }
+  const closed = await apiJson(`/v1/jobs/${jobId}`);
   const verify = await apiJson(`/v1/verify/${jobId}`);
   const onchain = verify.onchain as { storageRoot?: string; exists?: boolean } | null;
   const proof = {
     status: "REAL",
     api: API,
+    serviceId,
+    model: quote.modelId || quote.breakdown?.model,
     jobId,
     bytes32: jobIdToBytes32(jobId),
     lockTx: `${EXPLORER}/tx/${lockTx.hash}`,
+    releaseTx: closed.releaseTx
+      ? `${EXPLORER}/tx/${closed.releaseTx}`
+      : (closed.explorer as { release?: string } | undefined)?.release ?? null,
+    receiptTx: closed.receiptTx ? `${EXPLORER}/tx/${closed.receiptTx}` : null,
     verifyUrl: `https://beacon-0g.vercel.app/verify/${jobId}`,
     onchain,
-    storageRoot: onchain?.storageRoot ?? afterRun.storageRoot,
-    releaseTx: afterRun.releaseTx ?? (afterRun.explorer as { release?: string } | undefined)?.release,
+    storageRoot: onchain?.storageRoot ?? closed.storageRoot,
+    imagePresent: Boolean(closed.imageB64),
     checkedAt: new Date().toISOString(),
   };
   const out = resolve(dirname(fileURLToPath(import.meta.url)), "../tmp/smoke-job-loop.json");

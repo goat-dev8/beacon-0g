@@ -599,7 +599,7 @@ async function runLockedJob(job: StoredJob): Promise<StoredJob> {
       const img = await generateImage({
         model: job.quote.modelId,
         prompt: job.brief,
-        trustMode: "private",
+        trustMode: job.quote.selected.trustMode,
         providerAddress: job.quote.providerAddress || undefined,
       });
       job.resultText = img.contentHash;

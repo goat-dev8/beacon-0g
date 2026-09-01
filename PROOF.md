@@ -83,6 +83,13 @@ Checked 2026-09-01. Chain id 16661 (`eth_chainId` = `0x4115`). RPC https://evmrp
   - receipt: https://chainscan.0g.ai/tx/0x41c2c961c20119bb82d302edd1c1fce6c7540da1c852bbac480901614d0e0f65
   - storage root `0x9f3d977891599ebc04cc9e5fe46f33c3081a959edad9b6d3cff5acc96955333b`
   - verify: https://beacon-0g.vercel.app/verify/75dde1f5-4e34-4839-960c-2c7f382de640
+- Hosted **image** job loop: job `6905f25c-e961-4c86-9df5-efdd31fb8cbc` (`z-image-turbo`, lock 0.047771 0G)
+  - lock: https://chainscan.0g.ai/tx/0xbc88421b735c6627ceb2058cd4ebadf7c25ec8fb8f259396b1bda701ad66f767
+  - release: https://chainscan.0g.ai/tx/0x683bf19a48428e1207cae858947600bdded5e20161bcab2bdf3b94d7c8e7c4a7
+  - receipt: https://chainscan.0g.ai/tx/0x3aa112e286196eac44e1a946aa7181b0db8aac607c7ae1053d8d6e6641bf9767
+  - storage root `0x593431009de6a80a277f4c8db4874f016c0d4bd7826bc3f67d67e7288304a924`
+  - verify: https://beacon-0g.vercel.app/verify/6905f25c-e961-4c86-9df5-efdd31fb8cbc
+  - reproduce: `npx tsx scripts/smoke-job-loop.ts image "A single lighthouse on a dark coast, geometric, no text, night."`
 - GitHub Actions: https://github.com/goat-dev8/beacon-0g/actions/runs/33572413870 (green)
 - Render static web was suspended; original Flare Beacon deploys were not modified.
 

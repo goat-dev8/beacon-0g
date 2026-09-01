@@ -114,7 +114,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | Storage turbo | **DONE** | root + txSeq |
 | Quotes from live catalog neurons | **DONE** | `/v1/models`, Flow cheap/image |
 | Flow UI | **DONE** | Vercel web + Render API |
-| Image (`z-image-turbo`) | **PARTIAL** | Live Router image job + Flow **quote**; hosted lock→run→release of a new image through the UI is not yet a second public receipt |
+| Image (`z-image-turbo`) | **DONE** | Hosted lock→run→release job `6905f25c-…`; Vercel `/verify` shows storage root `0x59343100…` |
 | Receipt registry + `/verify` | **DONE** | UI shows on-chain receipt without API memory |
 | Zia `exactInputSingle` fail-closed | **DONE** | Mainnet swap txs; thin-book refuse |
 | ERC-8004 register | **DONE** | agentId `3531902` |
@@ -136,7 +136,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | 4 | Quotes in 0G from live `pricing` | **DONE** |
 | 5 | TeeML independently verifiable | **DONE** |
 | 6 | Storage root on storagescan | **DONE** |
-| 7 | Image via z-image-turbo only | **DONE** for generation path; video off |
+| 7 | Image via z-image-turbo only | **DONE** hosted escrow loop + `/verify`; video off |
 | 8 | One real Zia swap or honest refuse | **DONE** both |
 | 9 | `/verify` without trusting API | **DONE** |
 | 10 | ERC-8004 used or honest skip | **DONE** (register) |
@@ -164,12 +164,11 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 
 ## Still not done (actionable)
 
-1. Connected-wallet lock from the Vercel Jobs UI (API lock→run→release is proven; UI still needs a session).
-2. Hosted image job lock→run→release (`z-image-turbo` generation is proven; this loop used `qwen3.8-flash`).
-3. ≤3 minute demo + X post `#0GBridge #BuildOn0G` (plan hour 42–48).
-4. P1 polish listed above.
-5. Rename leftover `*Usdt0` fields to 0G.
-6. Do **not** put web back on Render. Do **not** put settler/Compute secrets on Vercel.
+1. Connected-wallet lock from the Vercel Jobs UI (API lock→run→release including `z-image-turbo` is proven; UI still needs a session).
+2. ≤3 minute demo + X post `#0GBridge #BuildOn0G` (plan hour 42–48).
+3. P1 polish listed above.
+4. Rename leftover `*Usdt0` fields to 0G.
+5. Do **not** put web back on Render. Do **not** put settler/Compute secrets on Vercel.
 
 ---
 
@@ -183,6 +182,7 @@ npm run smoke:storage-swap
 npm run smoke:erc8004
 npm run smoke:tee
 npm run smoke:job-loop
+npx tsx scripts/smoke-job-loop.ts image "lighthouse"
 ```
 
 Live API: https://beacon-0g-api.onrender.com/health  
