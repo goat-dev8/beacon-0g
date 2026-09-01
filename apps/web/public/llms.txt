@@ -1,0 +1,19 @@
+# Beacon · 0G AI OS
+
+> Conversation product for 0G Aristotle: quote → TeeML policy → lock native 0G → Compute → Storage → receipt.
+
+## Product
+- Flow: chat agents for 0G Compute jobs, TeeML ALLOW/DENY, Zia 0G→USDC.e, and `/verify`
+- Policy: Beacon Safe per-tx and rolling 0G caps, pause, refunds
+- Network: 0G Aristotle (16661). Unit of account is native 0G.
+
+## Links
+- App: /flow
+- Jobs: /flow/desk
+- Safe: /flow/security
+- Verify: /verify
+
+## Honesty
+- Router `verify_tee` is not independent proof. Independent check is SDK `processResponse` plus EIP-191 recover against the on-chain TEE signer.
+- Explorer links are Aristotle (`chainscan.0g.ai`).
+- Quotes come from the live Router catalog neuron prices.
