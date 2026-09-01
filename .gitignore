@@ -3,6 +3,7 @@ node_modules/
 .env.*
 !.env.example
 !.env.example.*
+!apps/web/.env.production
 out/
 cache/
 broadcast/

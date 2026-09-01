@@ -11,7 +11,7 @@ Chain: 0G Aristotle **16661** (`eth_chainId` `0x4115`). Unit of account: **nativ
 
 Beacon stays Beacon: tell it what you want, it quotes in **0G**, policy + TeeML decide ALLOW/DENY, work runs on 0G Compute + Storage, you pay in 0G or you were not charged. Surfaces: Flow `/flow`, Jobs `/flow/desk`, Safe `/flow/security`, MCP `/flow/mcp`, public `/verify/:id`.
 
-Not: chatbot, DEX, agent marketplace, USDT0/USDT0 desk, Flare FAssets/FTSO/LayerZero.
+Not: chatbot, DEX, agent marketplace, USDT0 desk, Flare FAssets/FTSO/LayerZero.
 
 ---
 
@@ -23,11 +23,11 @@ V1 mapped Flare Beacon onto 0G but still thought in USD/USDC.e. V2 (2026-09-01) 
 
 Constraints that stood: no mocks, no Groq/OpenAI fallbacks, no simulated TEE, no Flare adapters, no secrets in git, leave original `beacon` alone.
 
-### 1. Scaffold
+### 1. Scaffold (plan hour 0–4)
 
-New public monorepo `beacon-0g`. Workspaces: `packages/shared|quote|compute|tee|storage|swap|receipts|execution|mcp`, `packages/contracts` (Foundry), `apps/api`, `apps/web`, `services/settler`. Guard script bans `GROQ_API_KEY`, `InMemoryStorage`, `SIMULATED_TEE`, `api.openai.com`.
+New public monorepo `beacon-0g`. Workspaces: `packages/shared|quote|compute|tee|storage|swap|receipts|execution|mcp`, `packages/contracts` (Foundry), `apps/api`, `apps/web`, `services/settler`. Guard script bans `GROQ_API_KEY`, `InMemoryStorage`, `SIMULATED_TEE`, `api.openai.com`. Native vault Solidity + tests exist.
 
-### 2. Contracts (Aristotle 16661)
+### 2. Contracts (plan hour 4–12) — Aristotle 16661
 
 | Contract | Address |
 |---|---|
@@ -40,7 +40,7 @@ Vault wealth = native 0G + W0G. Wrap is not spend. Executor-only `execute`. Escr
 
 Mainnet txs (see `PROOF.md`): deploy escrow/registry/factory, `createSafe`, deposit 0.05 0G.
 
-### 3. Core packages
+### 3. Core packages (plan hour 12–34)
 
 - **Quote:** live `GET /v1/models`, neuron `pricing`, `pricing_usd` display-only.
 - **Compute:** Router `chat/completions` + async `z-image-turbo`. No fallbacks.
@@ -49,11 +49,11 @@ Mainnet txs (see `PROOF.md`): deploy escrow/registry/factory, `createSafe`, depo
 - **Swap:** Zia QuoterV2 + `exactInputSingle` only. Thin book refused. JAINE/SparkDEX/OFT throw `NOT_AVAILABLE`.
 - **Receipts:** `amount0g`, `storageRoot`, `teeSigner`, `quoteHash`.
 
-### 4. Apps
+### 4. Apps (plan hour 34–42)
 
-API (Fastify): catalog `/v1/models`, `/v1/quote`, jobs lock/run/refund/release, `/v1/verify/:id` (on-chain receipt is authoritative), Flow chat, Zia quote/build, Safe session (`chain:16661`), vault status/prepare, Zia execute from Safe, honest OFT refuse.
+API (Fastify, hosted on Render): catalog `/v1/models`, `/v1/quote`, jobs lock/run/refund/release, `/v1/verify/:id` (on-chain receipt is authoritative), Flow chat, Zia quote/build, Safe session (`chain:16661`), vault status/prepare, Zia execute from Safe, honest OFT refuse.
 
-Web (Vite): Flow, Jobs, Safe, `/verify`. SPA rewrite. Wallet via Reown on Aristotle.
+Web (Vite, hosted on **Vercel**): Flow, Jobs, Safe, `/verify`. SPA rewrite. Wallet via Reown on Aristotle. Production SPA talks to `https://beacon-0g-api.onrender.com` (`apps/web/.env.production` + `apiBase()` fallback). No Compute/settler/DB secrets on Vercel.
 
 ### 5. Live 0G proofs (not mocks)
 
@@ -67,23 +67,33 @@ Recorded in `PROOF.md`:
 - Zia wrap + approve + `exactInputSingle`.
 - ERC-8004 `register()` agentId `3531902`.
 
-### 6. Hosting
+### 6. Hosting (2026-09-02)
 
 | Surface | Where | URL |
 |---|---|---|
-| API | Render `beacon-0g-api` (kept) | https://beacon-0g-api.onrender.com |
-| Web | **Vercel** project `beacon-0g` (Render static web **suspended**) | https://beacon-0g.vercel.app |
+| API | Render `beacon-0g-api` (kept, not suspended) | https://beacon-0g-api.onrender.com |
+| Web | **Vercel** project `beacon-0g` | https://beacon-0g.vercel.app |
+| Render static web | `beacon-0g-web` **suspended** | do not use |
 | Original Flare Beacon | Render `beacon-api` etc. | **untouched** |
 
-Web env on Vercel is **public `VITE_*` only** (API URL, RPC, contract addresses, Reown project id). Settler keys, Compute key, DB, Redis, GitHub/Render/Vercel tokens stay off the frontend.
+Vercel project: https://vercel.com/goats-projects-3f023cc9/beacon-0g  
+Build: `npm install --legacy-peer-deps` then `npm run build -w @beacon/web`. Output `apps/web/dist`. Root directory = repo root (not `apps/web`). SPA rewrite `/(.*) → /index.html`.
+
+Web env on Vercel is **public `VITE_*` only**: `VITE_API_URL`, `VITE_RPC_URL`, `VITE_CHAIN_ID`, escrow/registry/factory/treasury/demo Safe, Reown project id. Settler keys, Compute key, DB, Redis, GitHub/Render/Vercel tokens stay off the frontend.
+
+First git production deploy baked contract fallbacks but **not** the API host (empty `VITE_API_URL` → same-origin `/v1/*` 404 on Vercel). Fix: committed `apps/web/.env.production` plus `apiBase()` production fallback to the Render API.
 
 ### 7. Browser E2E (Render API + hosted web)
+
+Proven against the API and (pre-Vercel) hosted Flow:
 
 - Landing: 0G / Aristotle 16661, not Flare.
 - Flow: Zia quote 0.2 0G → USDC.e; unconstrained transfer **Blocked before funds moved.**
 - Cheap catalog quote: `glm-5.3-flash` lock 0.001 0G.
 - Image quote: `z-image-turbo`.
 - `/verify/0xb1c5ac5a…`: on-chain storage root, ALLOW, TEE signer, recorder. No wallet.
+
+Re-check after Vercel API-base fix: SPA `/`, `/flow`, `/verify/:id` must call `beacon-0g-api.onrender.com`, not Vercel origin.
 
 ### 8. Git
 
@@ -104,7 +114,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | Storage turbo | **DONE** | root + txSeq |
 | Quotes from live catalog neurons | **DONE** | `/v1/models`, Flow cheap/image |
 | Flow UI | **DONE** | Vercel web + Render API |
-| Image (`z-image-turbo`) | **PARTIAL** | Live Router image job + Flow **quote**; hosted lock→run→release of a new image through the API UI is not yet a second public receipt |
+| Image (`z-image-turbo`) | **PARTIAL** | Live Router image job + Flow **quote**; hosted lock→run→release of a new image through the UI is not yet a second public receipt |
 | Receipt registry + `/verify` | **DONE** | UI shows on-chain receipt without API memory |
 | Zia `exactInputSingle` fail-closed | **DONE** | Mainnet swap txs; thin-book refuse |
 | ERC-8004 register | **DONE** | agentId `3531902` |
@@ -116,7 +126,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | ≤3 min demo + X post | **NOT DONE** | Plan hour 42–48 |
 | CI on GitHub | **NOT DONE** | Same as GHA |
 
-### Definition of Done (plan §)
+### Definition of Done (plan)
 
 | # | Requirement | Now |
 |---|---|---|
@@ -148,14 +158,18 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 
 **Honest leftover naming:** some policy fields still say `*Usdt0` in types while the UI unit is 0G. Dead Flare card types early-return “Not on 0G”.
 
+**Plan remaining unknowns (research, not blockers for hosted web):** Path B wrap without `WETH9()`, first paid Router invoice vs catalog neuron, z-image `processResponse` with empty content, AKINDO submit instant, Payment Layer vs Direct-only for TeeML.
+
 ---
 
-## Hosting split (2026-09-02)
+## Still not done (actionable)
 
-- **Web → Vercel** https://vercel.com/goats-projects-3f023cc9/beacon-0g  
-  Build: `npm install --legacy-peer-deps` then `npm run build -w @beacon/web`. Output `apps/web/dist`. SPA rewrite. Env: `VITE_API_URL=https://beacon-0g-api.onrender.com` plus public contract/RPC/Reown vars.
-- **API stays on Render.** Compute key + settler stay server-side.
-- **Render `beacon-0g-web` suspended.** Do not put the SPA there.
+1. GitHub Actions: push `.github/workflows` with a PAT that has `workflow` scope; get CI green on GitHub.
+2. Full Flow UI lock → run → release (wallet session on Vercel) so a **second** public receipt is created from the hosted UI, not only smoke txs.
+3. ≤3 minute demo + X post `#0GBridge #BuildOn0G` (plan hour 42–48).
+4. P1 polish listed above.
+5. Rename leftover `*Usdt0` fields to 0G.
+6. Do **not** put web back on Render. Do **not** put settler/Compute secrets on Vercel.
 
 ---
 
@@ -171,4 +185,5 @@ npm run smoke:tee
 ```
 
 Live API: https://beacon-0g-api.onrender.com/health  
-Live verify: `{WEB}/verify/0xb1c5ac5abf0c7ff569c09939ce0620390fbbb41cc8ae400278af04070696ba77`
+Live web: https://beacon-0g.vercel.app  
+Live verify: https://beacon-0g.vercel.app/verify/0xb1c5ac5abf0c7ff569c09939ce0620390fbbb41cc8ae400278af04070696ba77

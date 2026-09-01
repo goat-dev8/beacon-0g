@@ -1,3 +1,4 @@
+import { apiBase } from "./publicEnv";
 import type {
   ApiErrorBody,
   Artifact,
@@ -8,7 +9,7 @@ import type {
   ServiceItem,
 } from "./types";
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+const API_BASE = apiBase();
 
 export class ApiError extends Error {
   code: string;

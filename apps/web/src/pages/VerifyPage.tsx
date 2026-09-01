@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { explorerAddress, explorerTx } from "@/lib/explorers";
+import { apiBase } from "@/lib/publicEnv";
 
 type OnchainReceipt = {
   storageRoot?: string;
@@ -39,7 +40,7 @@ export function VerifyPage() {
 
   useEffect(() => {
     if (!jobId) return;
-    const base = import.meta.env.VITE_API_URL ?? "";
+    const base = apiBase();
     fetch(`${base}/v1/verify/${jobId}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
