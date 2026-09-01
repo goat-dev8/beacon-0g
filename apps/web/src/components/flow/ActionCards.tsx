@@ -730,6 +730,18 @@ export function ActionCard({
     );
   }
 
+  if (card.type === "quote") {
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          Native 0G
+        </p>
+        <p className="mt-1 font-medium text-[var(--p-fg)]">{String(card.title ?? "Quote")}</p>
+        <p className="mt-1 text-sm text-[var(--p-muted)]">{String(card.summary ?? "")}</p>
+      </div>
+    );
+  }
+
   if (card.type === "desk_link") {
     const cta = String(card.href).includes("/security") ? "Open Safe" : "Open desk";
     return (

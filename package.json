@@ -32,7 +32,7 @@
     "smoke:storage-swap": "tsx scripts/smoke-storage-swap.ts",
     "smoke:erc8004": "tsx scripts/erc8004-register.ts",
     "smoke:image": "tsx scripts/smoke-image.ts",
-    "smoke:tee": "tsx scripts/smoke-tee.ts",
+    "smoke:job-loop": "tsx scripts/smoke-job-loop.ts",
     "validate:production": "tsx scripts/validate-production.ts",
     "api": "tsx apps/api/src/index.ts",
     "settler": "tsx services/settler/src/index.ts",

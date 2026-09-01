@@ -122,7 +122,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 | GitHub Actions green | **NOT DONE** | Workflow file not on GitHub (`workflow` token scope). Local: vitest + guard pass |
 | Public git | **DONE** | goat-dev8/beacon-0g |
 | Mainnet txs + PROOF.md | **DONE** | this repo |
-| Hosted job lock→run from Flow UI | **NOT DONE** | Escrow proven via smoke; Flow currently quotes/denies/swaps; full UI pay-and-run loop still needs a wallet session on Vercel |
+| Hosted job lock→run from Flow UI | **PARTIAL** | Jobs desk now uses 0G `/v1/services` + quote + `lockNative` / Safe execute + background run/release. Needs a connected wallet on Vercel plus a second public receipt from `npm run smoke:job-loop` after this API deploy |
 | ≤3 min demo + X post | **NOT DONE** | Plan hour 42–48 |
 | CI on GitHub | **NOT DONE** | Same as GHA |
 
@@ -165,7 +165,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 ## Still not done (actionable)
 
 1. GitHub Actions: push `.github/workflows` with a PAT that has `workflow` scope; get CI green on GitHub.
-2. Full Flow UI lock → run → release (wallet session on Vercel) so a **second** public receipt is created from the hosted UI, not only smoke txs.
+2. Full Flow UI lock → run → release: Jobs desk now talks to the 0G job API (`/v1/services`, quote, wallet lock, Safe execute). A second public receipt from hosted lock→run is still pending the live smoke after this deploy.
 3. ≤3 minute demo + X post `#0GBridge #BuildOn0G` (plan hour 42–48).
 4. P1 polish listed above.
 5. Rename leftover `*Usdt0` fields to 0G.

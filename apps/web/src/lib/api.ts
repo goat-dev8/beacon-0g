@@ -180,6 +180,7 @@ export const api = {
   getJob: (jobId: string) =>
     request<{
       job: JobRow;
+      quote?: QuoteDto;
       recentEvents: JobEvent[];
       paymentRail: {
         mode: "safe" | "wallet";

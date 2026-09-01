@@ -265,10 +265,16 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
   });
 
   useEffect(() => {
-    const job = jobQuery.data?.job;
+    const data = jobQuery.data;
+    const job = data?.job;
     if (!job) return;
     setServiceId((prev) => prev ?? job.service_id);
-    const rail = jobQuery.data?.paymentRail;
+    if (data.quote && !quote) {
+      setQuote(data.quote);
+      setOfferId(data.quote.quoteId);
+      if (job.status === "QUOTED") setStep("quote");
+    }
+    const rail = data.paymentRail;
     if (rail) {
       setPayMode(rail.mode);
       setLockTx(rail.lockTxHash);
@@ -280,7 +286,7 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
     ) {
       setStep("result");
     }
-  }, [jobQuery.data?.job, jobQuery.data?.paymentRail]);
+  }, [jobQuery.data, quote]);
 
   const form = useForm<BriefForm>({
     resolver: zodResolver(briefSchema),
