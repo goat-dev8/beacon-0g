@@ -49,30 +49,4 @@ services:
       - key: API_URL
         sync: false
 
-  - type: web
-    name: beacon-0g-web
-    runtime: static
-    plan: starter
-    region: oregon
-    branch: main
-    buildCommand: npm install --legacy-peer-deps && npm run build -w @beacon/web
-    staticPublishPath: apps/web/dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: NODE_VERSION
-        value: "20"
-      - key: VITE_API_URL
-        sync: false
-      - key: VITE_BEACON_ESCROW
-        value: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566"
-      - key: VITE_BEACON_RECEIPT_REGISTRY
-        value: "0x31666B7ECf736c0c6014F0cd63C646B7f4Af3887"
-      - key: VITE_BEACON_SAFE_FACTORY_ADDRESS
-        value: "0x531e8533aBA2Ca534959Df860C3226c02EaC3eE1"
-      - key: VITE_BEACON_TREASURY
-        value: "0x18398aA1dFdA63F30529c46E90ac41c1E75F7Ecf"
-      - key: VITE_RPC_URL
-        value: https://evmrpc.0g.ai
+# Web is hosted on Vercel (not Render). API stays here.

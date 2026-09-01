@@ -52,6 +52,12 @@ forge test --root packages/contracts
 
 Set `TEE_FAIL_CLOSED=true`. `CHAIN_ID` must be `16661`. Do not point jobs at simulated compute.
 
+## Hosted
+
+- Web: https://beacon-0g.vercel.app
+- API: https://beacon-0g-api.onrender.com
+- History: [`HISTORY.md`](./HISTORY.md)
+
 ## Honesty
 
 - Vault wealth is native 0G + W0G. Bridged USDC out of a Zia swap is **not** vault wealth.

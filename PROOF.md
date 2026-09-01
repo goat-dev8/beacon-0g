@@ -72,11 +72,12 @@ Checked 2026-09-01. Chain id 16661 (`eth_chainId` = `0x4115`). RPC https://evmrp
 ## Demo wallet
 - `0x18398aA1dFdA63F30529c46E90ac41c1E75F7Ecf` (public address only; no keys in this file)
 
-## Hosted surfaces (Render — new services; original Beacon deploy was not modified)
-- API: https://beacon-0g-api.onrender.com
-- Web: https://beacon-0g-web.onrender.com
+## Hosted surfaces
+- API (Render): https://beacon-0g-api.onrender.com
+- Web (Vercel): https://beacon-0g.vercel.app
 - Health: https://beacon-0g-api.onrender.com/health
-- Verify: https://beacon-0g-web.onrender.com/verify/0xb1c5ac5abf0c7ff569c09939ce0620390fbbb41cc8ae400278af04070696ba77
+- Verify: https://beacon-0g.vercel.app/verify/0xb1c5ac5abf0c7ff569c09939ce0620390fbbb41cc8ae400278af04070696ba77
+- Render static web was suspended; original Flare Beacon deploys were not modified.
 
 ## How to reproduce (no secrets in git)
 ```bash
