@@ -108,9 +108,43 @@ async function tryRedis(env: BeaconEnv): Promise<FlowHistory | null> {
   }
 }
 
-/** Postgres first if it actually answers. Otherwise durable Upstash Redis. Never in-memory. */
+function wrapLayered(primary: FlowHistory, fallback: FlowHistory): FlowHistory {
+  return {
+    kind: primary.kind,
+    listConversations: async (wallet) => {
+      const rows = await primary.listConversations(wallet);
+      if (rows.length > 0) return rows;
+      return fallback.listConversations(wallet);
+    },
+    createConversation: (wallet, title, agentId) => primary.createConversation(wallet, title, agentId),
+    getConversation: async (id, wallet) => {
+      return (await primary.getConversation(id, wallet)) ?? fallback.getConversation(id, wallet);
+    },
+    renameConversation: (id, wallet, title) => primary.renameConversation(id, wallet, title),
+    archiveConversation: (id, wallet) => primary.archiveConversation(id, wallet),
+    pinConversation: (id, wallet, pinned) => primary.pinConversation(id, wallet, pinned),
+    listMessages: async (conversationId) => {
+      const rows = await primary.listMessages(conversationId);
+      if (rows.length > 0) return rows;
+      return fallback.listMessages(conversationId);
+    },
+    appendMessage: (conversationId, msg) => primary.appendMessage(conversationId, msg),
+    updateConversationState: (conversationId, state, agentId) =>
+      primary.updateConversationState(conversationId, state, agentId),
+    recordActivity: (wallet, kind, title, meta, explorerUrl, refId) =>
+      primary.recordActivity(wallet, kind, title, meta, explorerUrl, refId),
+    listActivity: async (wallet) => {
+      const rows = await primary.listActivity(wallet);
+      if (rows.length > 0) return rows;
+      return fallback.listActivity(wallet);
+    },
+  };
+}
+
+/** Postgres first if it actually answers. Redis remains readable so a new database does not hide prior chats. Never in-memory. */
 export async function openFlowHistory(env: BeaconEnv): Promise<FlowHistory | null> {
   const pg = await tryPostgres(env);
-  if (pg) return pg;
-  return tryRedis(env);
+  const redis = await tryRedis(env);
+  if (pg && redis) return wrapLayered(pg, redis);
+  return pg ?? redis;
 }
