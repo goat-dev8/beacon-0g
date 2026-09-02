@@ -14,4 +14,13 @@ describe("structured errors", () => {
   it("maps Compute ledger shortfall separately from Safe wealth", () => {
     expect(userMessageForCode("INSUFFICIENT_TREASURY")).toMatch(/not your Safe/i);
   });
+
+  it("keeps pipeline failures honest and charge-free", () => {
+    expect(userMessageForCode("TEE_DENIED")).toMatch(/refused/i);
+    expect(userMessageForCode("STORAGE_FAILED")).toMatch(/Storage/i);
+    expect(userMessageForCode("COMPUTE_FAILED")).toMatch(/not been charged/i);
+    expect(userMessageForCode("OFFER_EXPIRED")).toMatch(/expired/i);
+    expect(new AppError("SWAP_REFUSED").statusCode).toBe(400);
+    expect(new AppError("TEE_DENIED").statusCode).toBe(403);
+  });
 });

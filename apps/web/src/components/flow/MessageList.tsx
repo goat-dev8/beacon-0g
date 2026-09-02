@@ -20,7 +20,7 @@ type Props = {
   onMint: () => void;
   onBalancesRefresh: () => void;
   onTxConfirmed: (info: {
-    kind: "swap" | "bridge";
+    kind: "swap" | "bridge" | "proof";
     title: string;
     hash: string;
     explorerUrl: string;

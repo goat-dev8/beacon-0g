@@ -8,6 +8,7 @@ import { jobIdFromDeskHref } from "@/lib/verifyProof";
 import { cn } from "@/lib/utils";
 import { ensureSafeAgentSession } from "@/lib/safeSession";
 import { executeLifiBridge } from "@/lib/wallet";
+import { classifyExecutionFailure } from "@/lib/walletFailures";
 import { SafeMarkdown } from "@/components/SafeMarkdown";
 import type { CardExecutionState, AgentCard } from "@/lib/executionPhases";
 import type { ConvState, PaidResendMeta } from "@/lib/flowTypes";
@@ -75,7 +76,7 @@ export function ActionCard({
   onPaidResend: (payment: Record<string, unknown>, meta: PaidResendMeta) => void;
   onBalancesRefresh: () => void;
   onTxConfirmed?: (info: {
-    kind: "swap" | "bridge";
+    kind: "swap" | "bridge" | "proof";
     title: string;
     hash: string;
     explorerUrl: string;
@@ -352,7 +353,8 @@ export function ActionCard({
                       await new Promise((r) => setTimeout(r, 8000));
                     }
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : "Bridge failed");
+                    const fail = classifyExecutionFailure(e);
+                    setError(fail.message);
                     setSwapStatus((prev) => (prev === "pending" ? "failed" : prev));
                   } finally {
                     setBusy(false);
@@ -405,12 +407,20 @@ export function ActionCard({
       isContract?: boolean;
       bytecodeBytes?: number;
       nativeBalanceWei?: string;
+      nativeBalance0g?: string;
       status?: string;
       from?: string;
       to?: string;
       selector?: string;
+      gasUsed?: string;
+      logs?: number;
+      implementation?: string | null;
       risks?: string[];
       verifiedNote?: string;
+      token?: { name?: string; symbol?: string; decimals?: number };
+      transfers?: Array<{ token?: string; symbol?: string; from?: string; to?: string; display?: string; value?: string }>;
+      tokenBalances?: Array<{ symbol: string; balance: string }>;
+      owner?: string | null;
     };
     return (
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
@@ -426,6 +436,28 @@ export function ActionCard({
             {inspect.isContract ? `Contract · ${inspect.bytecodeBytes} bytes` : "EOA · no bytecode"}
           </p>
         ) : null}
+        {inspect.nativeBalance0g ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-fg)]">Native {inspect.nativeBalance0g} 0G</p>
+        ) : null}
+        {inspect.token?.symbol ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-fg)]">
+            Token {inspect.token.symbol}
+            {inspect.token.name ? ` · ${inspect.token.name}` : ""}
+            {inspect.token.decimals != null ? ` · ${inspect.token.decimals} decimals` : ""}
+          </p>
+        ) : null}
+        {inspect.from ? (
+          <p className="mt-1 break-all font-mono text-xs text-[var(--p-muted)]">From {inspect.from}</p>
+        ) : null}
+        {inspect.to ? (
+          <p className="mt-1 break-all font-mono text-xs text-[var(--p-muted)]">To {inspect.to}</p>
+        ) : null}
+        {inspect.gasUsed ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Gas used {inspect.gasUsed}</p>
+        ) : null}
+        {inspect.logs != null ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Logs {inspect.logs}</p>
+        ) : null}
         {inspect.selector ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Selector {inspect.selector}</p>
         ) : null}
@@ -437,15 +469,25 @@ export function ActionCard({
         {inspect.verifiedNote ? (
           <p className="mt-2 text-xs text-amber-200/90">{inspect.verifiedNote}</p>
         ) : null}
-        {Array.isArray((inspect as { tokenBalances?: Array<{ symbol: string; balance: string }> }).tokenBalances) &&
-          (inspect as { tokenBalances: Array<{ symbol: string; balance: string }> }).tokenBalances.map((row) => (
-            <p key={row.symbol} className="mt-1 font-mono text-xs text-[var(--p-fg)]">
-              {row.symbol} · {row.balance}
-            </p>
-          ))}
-        {(inspect as { owner?: string }).owner ? (
-          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">
-            owner {(inspect as { owner: string }).owner}
+        {(inspect.tokenBalances ?? []).map((row) => (
+          <p key={row.symbol} className="mt-1 font-mono text-xs text-[var(--p-fg)]">
+            {row.symbol} · {row.balance}
+          </p>
+        ))}
+        {(inspect.transfers ?? []).map((row, i) => (
+          <p key={`${row.token}-${i}`} className="mt-1 break-all font-mono text-xs text-[var(--p-fg)]">
+            Transfer {row.display ?? row.value ?? "?"}
+            {row.symbol && !row.display ? ` ${row.symbol}` : ""}
+            {row.from ? ` · ${row.from.slice(0, 8)}…` : ""}
+            {row.to ? ` → ${row.to.slice(0, 8)}…` : ""}
+          </p>
+        ))}
+        {inspect.owner ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">owner {inspect.owner}</p>
+        ) : null}
+        {inspect.implementation ? (
+          <p className="mt-1 break-all font-mono text-xs text-[var(--p-muted)]">
+            implementation {inspect.implementation}
           </p>
         ) : null}
         {inspect.explorer ? (
@@ -868,7 +910,8 @@ export function ActionCard({
                       meta: { ogPrimitive: "Beacon Safe · Aristotle", chainId },
                     });
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : "Swap failed");
+                    const fail = classifyExecutionFailure(e);
+                    setError(fail.message);
                     setSwapStatus((prev) => (prev === "pending" ? "failed" : prev));
                     setApproveStatus((prev) => (prev === "pending" ? "failed" : prev));
                   } finally {
@@ -1233,6 +1276,15 @@ export function ActionCard({
                       if (["PASSED", "CLOSED", "SETTLING"].includes(status)) {
                         setJobPhase("done");
                         onBalancesRefresh();
+                        onTxConfirmed?.({
+                          kind: "proof",
+                          title: `Job ${jobId.slice(0, 8)}`,
+                          hash: jobId,
+                          explorerUrl: proofHref.startsWith("http")
+                            ? proofHref
+                            : `${window.location.origin}${proofHref}`,
+                          meta: { status },
+                        });
                         break;
                       }
                       if (["FAILED", "REFUSING", "EXPIRED", "CANCELED"].includes(status)) {
@@ -1242,7 +1294,8 @@ export function ActionCard({
                       await new Promise((r) => setTimeout(r, 4000));
                     }
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : "Job lock failed");
+                    const fail = classifyExecutionFailure(e);
+                    setError(fail.message);
                     setJobPhase("failed");
                   } finally {
                     setBusy(false);

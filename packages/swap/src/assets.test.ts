@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ZEROG_USDCE_CCIP, ZEROG_W0G } from "@beacon/shared";
+import { ZEROG_USDCE_CCIP, ZEROG_W0G, ZIA_FACTORY } from "@beacon/shared";
 import { resolveZiaToken, uniqueZiaAssets } from "./tokens.js";
-import { listSwapAssets } from "./assets.js";
+import { getPoolAtFee, listSwapAssets } from "./assets.js";
 import { Interface, AbiCoder, getAddress } from "ethers";
 
 describe("Zia documented tokens", () => {
@@ -42,5 +42,17 @@ describe("listSwapAssets", () => {
     });
     expect(listed.routes.length).toBeGreaterThan(0);
     expect(listed.routes.every((r) => r.quoted && r.pool)).toBe(true);
+  });
+
+  it("decodes factory getPool from a 32-byte word without ABI throw", async () => {
+    const pool = getAddress("0x23336572435ec92d25ef0dd2d468b2a1abf7bb4f");
+    const hit = await getPoolAtFee(
+      async () => `0x${pool.slice(2).toLowerCase().padStart(64, "0")}`,
+      ZIA_FACTORY,
+      ZEROG_W0G,
+      ZEROG_USDCE_CCIP,
+      3000,
+    );
+    expect(hit).toBe(pool);
   });
 });

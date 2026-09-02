@@ -89,4 +89,29 @@ describe("statusLifiBridge", () => {
     expect(st.complete).toBe(false);
     expect(st.status).toBe("PENDING");
   });
+
+  it("marks complete only when DONE and a destination tx exist", async () => {
+    const fetchImpl = (async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          status: "DONE",
+          sending: { txHash: "0xsrc" },
+          receiving: { txHash: "0xdst" },
+        }),
+      }) as Response) as typeof fetch;
+    const st = await statusLifiBridge("0xsrc", 8453, fetchImpl);
+    expect(st.complete).toBe(true);
+    expect(st.receivingTx).toBe("0xdst");
+  });
+
+  it("does not mark DONE complete without a destination tx", async () => {
+    const fetchImpl = (async () =>
+      ({
+        ok: true,
+        json: async () => ({ status: "DONE", sending: { txHash: "0xsrc" } }),
+      }) as Response) as typeof fetch;
+    const st = await statusLifiBridge("0xsrc", 8453, fetchImpl);
+    expect(st.complete).toBe(false);
+  });
 });

@@ -26,18 +26,42 @@ function ethCallFromProvider(provider: Provider): EthCall {
   return async (tx) => provider.call({ to: tx.to, data: tx.data });
 }
 
-async function getPool(
+function decodePoolAddress(raw: string): string | null {
+  const hex = (raw?.startsWith("0x") ? raw.slice(2) : raw || "").padStart(64, "0");
+  if (!/^[0-9a-fA-F]{64}$/.test(hex.slice(-64))) return null;
+  const addr = `0x${hex.slice(-40)}`;
+  if (addr.toLowerCase() === ZERO) return null;
+  try {
+    return getAddress(addr);
+  } catch {
+    return null;
+  }
+}
+
+export async function getPoolAtFee(
   call: EthCall,
   factory: string,
   tokenA: string,
   tokenB: string,
   fee: number,
 ): Promise<string | null> {
-  const data = FACTORY.encodeFunctionData("getPool", [getAddress(tokenA), getAddress(tokenB), fee]);
-  const raw = await call({ to: factory, data });
-  const [pool] = FACTORY.decodeFunctionResult("getPool", raw);
-  if (!pool || String(pool).toLowerCase() === ZERO) return null;
-  return getAddress(pool);
+  const factoryAddr = getAddress(factory.toLowerCase());
+  const a = getAddress(tokenA);
+  const b = getAddress(tokenB);
+  for (const [token0, token1] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    const data = FACTORY.encodeFunctionData("getPool", [token0, token1, fee]);
+    try {
+      const raw = await call({ to: factoryAddr, data });
+      const pool = decodePoolAddress(typeof raw === "string" ? raw : String(raw));
+      if (pool) return pool;
+    } catch {
+      /* try the swapped token order */
+    }
+  }
+  return null;
 }
 
 export async function findPoolFee(
@@ -47,7 +71,7 @@ export async function findPoolFee(
   tokenB: string,
 ): Promise<{ fee: number; pool: string } | null> {
   for (const fee of ZIA_FEE_TIERS) {
-    const pool = await getPool(call, factory, tokenA, tokenB, fee);
+    const pool = await getPoolAtFee(call, factory, tokenA, tokenB, fee);
     if (pool) return { fee, pool };
   }
   return null;

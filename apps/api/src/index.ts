@@ -21,7 +21,7 @@ import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } fr
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
-import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, findPoolFee, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
+import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, findPoolFee, getPoolAtFee, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
 import {
   createSafeSessionChallenge,
   verifyChallengeAndIssueSession,
@@ -1995,13 +1995,12 @@ app.post("/v1/flow/chat", async (req) => {
       const minReceived = formatTokenAmount(quote.minOut, outDecimals);
       let pool: string | null = null;
       try {
-        const hit = await findPoolFee(
-          async (tx) => provider.call({ to: tx.to, data: tx.data }),
-          env.ZIA_FACTORY,
-          quote.tokenIn,
-          quote.tokenOut,
-        );
-        pool = hit?.pool ?? null;
+        const ethCall = async (tx: { to: string; data: string }) => provider.call({ to: tx.to, data: tx.data });
+        pool = await getPoolAtFee(ethCall, env.ZIA_FACTORY, quote.tokenIn, quote.tokenOut, quote.fee);
+        if (!pool) {
+          const hit = await findPoolFee(ethCall, env.ZIA_FACTORY, quote.tokenIn, quote.tokenOut);
+          pool = hit?.pool ?? null;
+        }
       } catch {
         pool = null;
       }

@@ -1,4 +1,4 @@
-import { Interface, getAddress, type Provider } from "ethers";
+import { Interface, formatEther, formatUnits, getAddress, type Provider } from "ethers";
 import { CHAIN_ID, ZEROG_EXPLORER } from "@beacon/shared";
 import { ZIA_DOC_TOKENS } from "@beacon/swap";
 
@@ -30,6 +30,7 @@ export type AddressInspect = {
   bytecodeBytes: number;
   isContract: boolean;
   nativeBalanceWei: string;
+  nativeBalance0g: string;
   token?: { name?: string; symbol?: string; decimals?: number; totalSupply?: string };
   tokenBalances?: Array<{ symbol: string; address: string; balance: string }>;
   owner?: string | null;
@@ -51,7 +52,14 @@ export type TxInspect = {
   gasUsed?: string;
   selector?: string | null;
   logs?: number;
-  transfers?: Array<{ token?: string; from?: string; to?: string; value?: string }>;
+  transfers?: Array<{
+    token?: string;
+    symbol?: string;
+    from?: string;
+    to?: string;
+    value?: string;
+    display?: string;
+  }>;
 };
 
 function explorerAddress(addr: string) {
@@ -170,6 +178,7 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
     bytecodeBytes,
     isContract,
     nativeBalanceWei: balance.toString(),
+    nativeBalance0g: formatEther(balance),
     token,
     tokenBalances,
     owner,
@@ -207,12 +216,27 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
   const transfers = (receipt?.logs ?? [])
     .filter((log) => log.topics?.[0]?.toLowerCase() === transferTopic && log.topics.length >= 3)
     .slice(0, 8)
-    .map((log) => ({
-      token: log.address,
-      from: `0x${log.topics[1].slice(26)}`,
-      to: `0x${log.topics[2].slice(26)}`,
-      value: log.data && log.data !== "0x" ? BigInt(log.data).toString() : undefined,
-    }));
+    .map((log) => {
+      const token = log.address;
+      const known =
+        ZIA_DOC_TOKENS.find(
+          (t) =>
+            !t.native &&
+            t.symbol === "USDC.e" &&
+            t.address.toLowerCase() === token.toLowerCase(),
+        ) ??
+        ZIA_DOC_TOKENS.find((t) => !t.native && t.address.toLowerCase() === token.toLowerCase());
+      const value = log.data && log.data !== "0x" ? BigInt(log.data).toString() : undefined;
+      const decimals = known?.docsDecimals ?? 18;
+      return {
+        token,
+        symbol: known?.symbol,
+        from: `0x${log.topics[1].slice(26)}`,
+        to: `0x${log.topics[2].slice(26)}`,
+        value,
+        display: value && known ? `${formatUnits(value, decimals)} ${known.symbol}` : undefined,
+      };
+    });
   return {
     hash: txHash,
     chainId: CHAIN_ID,

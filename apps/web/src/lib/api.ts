@@ -424,7 +424,7 @@ export const api = {
     }>(`/v1/flow/activity?wallet=${encodeURIComponent(wallet)}`),
   recordFlowActivity: (body: {
     wallet: string;
-    kind: "swap" | "bridge" | "payment" | "media" | "execution";
+    kind: "swap" | "bridge" | "payment" | "media" | "execution" | "proof";
     title: string;
     explorerUrl?: string;
     refId?: string;

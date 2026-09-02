@@ -1,4 +1,5 @@
 import { Search, PanelLeftClose, PanelLeft, Pencil, Star, X } from "lucide-react";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import type { FlowConv } from "@/lib/flowTypes";
 
@@ -175,6 +176,15 @@ export function HistoryRail({
                             ? c.last_message.slice(0, 72)
                             : `${new Date(c.updated_at).toLocaleString()} · ${c.agent_id}`)}
                       </span>
+                      {c.job_ids?.[0] && (
+                        <Link
+                          to={`/verify/${c.job_ids[0]}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 inline-block font-mono text-[10px] text-[var(--p-accent-text)] underline-offset-2 hover:underline"
+                        >
+                          Proof {c.job_ids[0].slice(0, 8)}
+                        </Link>
+                      )}
                     </>
                   )}
                 </button>
