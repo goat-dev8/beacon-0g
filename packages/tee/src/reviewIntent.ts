@@ -47,9 +47,9 @@ export function isCatalogJobTool(tool: string): boolean {
   return /^(cheap|image|infer|policy|vision|video|stt)$/i.test(tool);
 }
 
-function looksLikeTheft(reason: string, category: string): boolean {
-  return /theft|unlimited spend|unconstrained|send-to-eoa|drain the safe|mismatched tool/i.test(
-    `${reason} ${category}`,
+function looksLikeTheft(reason: string, category: string, userText = ""): boolean {
+  return /theft|unlimited spend|unconstrained|send-to-eoa|drain the safe|mismatched tool|bypass policy|send all|0x0{20,}d+ead/i.test(
+    `${reason} ${category} ${userText}`,
   );
 }
 
@@ -227,7 +227,7 @@ export async function reviewIntent(
   }
 
   const catalogJob = isCatalogJobTool(input.tool);
-  const semanticTheft = looksLikeTheft(reason, category);
+  const semanticTheft = looksLikeTheft(reason, category, input.userText);
   const finalAllow = allow === true || (catalogJob && !semanticTheft);
   const finalReason = finalAllow
     ? allow
