@@ -152,6 +152,8 @@ export function ResultExperience({
     (bodyKind === "image" || bodyMime.startsWith("image/") || bodyMime.includes("svg"));
   const isText = Boolean(body) && !isImage && !isVideo;
   const rawSrc = selectedId != null ? api.artifactRawUrl(jobId, selectedId) : null;
+  const imageSrc =
+    selected?.uri && selected.uri.startsWith("data:image") ? selected.uri : rawSrc;
 
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -165,6 +167,16 @@ export function ResultExperience({
   }, [body]);
 
   const onDownload = useCallback(() => {
+    const href = imageSrc || rawSrc;
+    if (href && (isImage || isVideo)) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `${bodyKind}-${jobId.slice(0, 8)}.png`;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      a.click();
+      return;
+    }
     if (rawSrc) {
       const a = document.createElement("a");
       a.href = rawSrc;
@@ -182,7 +194,7 @@ export function ResultExperience({
     a.download = `${bodyKind}-${jobId.slice(0, 8)}.md`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [rawSrc, body, bodyMime, bodyKind, jobId]);
+  }, [imageSrc, rawSrc, isImage, isVideo, body, bodyMime, bodyKind, jobId]);
 
   const meta = quote?.breakdown;
   const draftMeta = useMemo(() => {
@@ -315,9 +327,9 @@ export function ResultExperience({
             dangerouslySetInnerHTML={{ __html: body }}
           />
         )}
-        {mode === "artifact" && isImage && rawSrc && !bodyMime.includes("svg") && (
+        {mode === "artifact" && isImage && imageSrc && !bodyMime.includes("svg") && (
           <img
-            src={rawSrc}
+            src={imageSrc}
             alt={`${bodyKind} result`}
             className="mx-auto max-h-[min(70vh,640px)] w-full rounded-xl object-contain"
           />

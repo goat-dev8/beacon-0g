@@ -597,6 +597,22 @@ app.get("/v1/jobs/:id/artifacts", async (req) => {
   return { jobId: job.id, artifacts };
 });
 
+app.get("/v1/jobs/:id/artifacts/:artifactId/raw", async (req, reply) => {
+  const id = (req.params as { id: string }).id;
+  const artifactId = (req.params as { artifactId: string }).artifactId;
+  const job = await getJob(id);
+  if (!job) throw new AppError("JOB_NOT_FOUND");
+  if (artifactId === "image" && job.imageB64) {
+    const bytes = Buffer.from(job.imageB64, "base64");
+    return reply
+      .type("image/png")
+      .header("Cache-Control", "public, max-age=300")
+      .header("Content-Length", String(bytes.length))
+      .send(bytes);
+  }
+  throw new AppError("JOB_NOT_FOUND", { message: "Artifact is not available as bytes." });
+});
+
 app.get("/v1/jobs/:id/artifacts/:artifactId", async (req) => {
   const id = (req.params as { id: string }).id;
   const artifactId = (req.params as { artifactId: string }).artifactId;
