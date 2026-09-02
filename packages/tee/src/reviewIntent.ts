@@ -228,13 +228,15 @@ export async function reviewIntent(
 
   const catalogJob = isCatalogJobTool(input.tool);
   const semanticTheft = looksLikeTheft(reason, category, input.userText);
-  const finalAllow = allow === true || (catalogJob && !semanticTheft);
-  const finalReason = finalAllow
-    ? allow
-      ? reason
-      : "Catalog escrow job attested by TeeML. Semantic DENY ignored because this lock is Compute + Storage, not a transfer."
-    : reason;
-  const finalCategory = finalAllow ? (allow ? category : "catalog-job") : category;
+  const finalAllow = semanticTheft ? false : allow === true || catalogJob;
+  const finalReason = semanticTheft
+    ? reason || "Hard DENY: drain or policy-bypass prompt."
+    : finalAllow
+      ? allow
+        ? reason
+        : "Catalog escrow job attested by TeeML. Semantic DENY ignored because this lock is Compute + Storage, not a transfer."
+      : reason;
+  const finalCategory = semanticTheft ? (category || "theft") : finalAllow ? (allow ? category : "catalog-job") : category;
 
   return {
     allow: finalAllow,
