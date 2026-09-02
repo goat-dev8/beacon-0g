@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { explorerAddress, explorerTx } from "@/lib/explorers";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { explorerAddress, explorerTx, storageScan } from "@/lib/explorers";
 import { apiBase } from "@/lib/publicEnv";
+import { proofOutcome } from "@/lib/verifyProof";
 
 type OnchainReceipt = {
   storageRoot?: string;
@@ -26,6 +27,7 @@ type VerifyPayload = {
     lockTx?: string | null;
     releaseTx?: string | null;
     refundTx?: string | null;
+    receiptTx?: string | null;
     storageRoot?: string | null;
     storageScan?: string | null;
     denial?: string | null;
@@ -33,10 +35,20 @@ type VerifyPayload = {
   note?: string | null;
 };
 
+const BG = "#070908";
+const FG = "#f4f6f4";
+const MUTED = "#c5ccc7";
+const FAINT = "#8b938d";
+const LINE = "#2a312c";
+const CARD = "#101412";
+const ACCENT = "#39e08a";
+const DANGER = "#ff6b6b";
+
 export function VerifyPage() {
   const { jobId } = useParams();
   const [data, setData] = useState<VerifyPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!jobId) return;
@@ -53,83 +65,281 @@ export function VerifyPage() {
   const job = data?.job;
   const onchain = data?.onchain ?? null;
   const storageRoot = onchain?.storageRoot || job?.storageRoot || null;
-  const storageScan = job?.storageScan || (storageRoot ? `https://storagescan.0g.ai` : null);
-  const policyLabel = onchain
-    ? onchain.allowed
-      ? "ALLOW (on-chain registry)"
-      : "DENY (on-chain registry)"
-    : job?.tee?.allow
-      ? "TeeML ALLOW claimed by API — not on-chain yet"
-      : job?.tee?.reason || job?.denial || undefined;
+  const storageHref = storageRoot ? storageScan(storageRoot) : null;
+  const outcome = proofOutcome(job, onchain);
+  const statusColor =
+    outcome.tone === "ok" ? ACCENT : outcome.tone === "fail" ? DANGER : MUTED;
+
+  const timeline = useMemo(
+    () => [
+      { label: "Quoted", done: Boolean(job?.quote?.quoteHash || job?.quote?.lock0gDisplay) },
+      { label: "Policy / TeeML", done: Boolean(job?.tee || onchain) },
+      { label: "Escrow locked", done: Boolean(job?.lockTx) },
+      { label: "Compute", done: Boolean(job?.status && !["QUOTED", "AUTHORIZED"].includes(job.status)) },
+      { label: "Storage", done: Boolean(storageRoot) },
+      {
+        label: job?.refundTx ? "Refunded" : "Released",
+        done: Boolean(job?.releaseTx || job?.refundTx),
+      },
+      { label: "On-chain receipt", done: Boolean(onchain?.exists) },
+    ],
+    [job, onchain, storageRoot],
+  );
+
+  async function copyReceipt() {
+    const payload = {
+      jobId: job?.id ?? jobId,
+      status: outcome.label,
+      onchain,
+      lockTx: job?.lockTx,
+      releaseTx: job?.releaseTx,
+      refundTx: job?.refundTx,
+      storageRoot,
+    };
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
 
   return (
-    <div className="mx-auto max-w-3xl px-5 py-16 text-[var(--p-fg,#e8efe9)]">
-      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--p-accent-text,#39e08a)]">
-        Verify on 0G
-      </p>
-      <h1 className="mt-2 font-display text-4xl font-extrabold tracking-tight">Job proof</h1>
-      <p className="mt-2 text-sm text-[var(--p-muted,#9a96a8)]">
-        No wallet required. Chain {data?.chainId ?? 16661} · Aristotle. The receipt registry on
-        chain is authoritative — API fields alone are not a pass.
-      </p>
-      {err && <p className="mt-6 text-sm text-red-400">{err}</p>}
-      {!err && !job && !onchain && (
-        <p className="mt-6 text-sm text-[var(--p-muted)]">{data?.note ?? "Loading…"}</p>
-      )}
-      {(job || onchain) && (
-        <dl className="mt-8 grid gap-4 text-sm">
-          <Row label="Job" value={job?.id ?? jobId} />
-          <Row label="Status" value={job?.status ?? (onchain?.exists ? "on-chain" : undefined)} />
-          <Row label="Model" value={job?.quote?.modelId} />
-          <Row label="Lock" value={job?.quote?.lock0gDisplay} />
-          <Row label="Policy" value={policyLabel} />
-          <Row
-            label="Lock tx"
-            value={job?.lockTx}
-            href={job?.lockTx ? explorerTx(job.lockTx) : undefined}
-          />
-          <Row
-            label="Release tx"
-            value={job?.releaseTx}
-            href={job?.releaseTx ? explorerTx(job.releaseTx) : undefined}
-          />
-          <Row
-            label="Refund tx"
-            value={job?.refundTx}
-            href={job?.refundTx ? explorerTx(job.refundTx) : undefined}
-          />
-          <Row label="Storage root" value={storageRoot} href={storageScan ?? undefined} />
-          <Row
-            label="TEE signer"
-            value={onchain?.teeSigner}
-            href={onchain?.teeSigner ? explorerAddress(onchain.teeSigner) : undefined}
-          />
-          <Row label="Quote hash" value={onchain?.quoteHash ?? job?.quote?.quoteHash} />
-          <Row
-            label="Recorder"
-            value={onchain?.recorder}
-            href={onchain?.recorder ? explorerAddress(onchain.recorder) : undefined}
-          />
-          {job?.denial && <Row label="Denied" value={job.denial} />}
-        </dl>
-      )}
+    <div className="min-h-dvh antialiased" style={{ background: BG, color: FG }}>
+      <header className="border-b px-5 py-4" style={{ borderColor: LINE }}>
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em]" style={{ color: ACCENT }}>
+            Verified on 0G
+          </p>
+          <nav className="flex flex-wrap gap-2 text-sm">
+            <Link className="rounded-full border px-3 py-1.5" style={{ borderColor: LINE, color: FG }} to="/flow">
+              Flow
+            </Link>
+            <Link
+              className="rounded-full border px-3 py-1.5"
+              style={{ borderColor: LINE, color: FG }}
+              to={jobId ? `/flow/desk?job=${jobId}` : "/flow/desk"}
+            >
+              Jobs
+            </Link>
+            <Link className="rounded-full px-3 py-1.5 font-medium" style={{ background: ACCENT, color: "#06130c" }} to="/">
+              Home
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl px-5 py-10 sm:py-14">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: ACCENT }}>
+          Forensic receipt · Aristotle {data?.chainId ?? 16661}
+        </p>
+        <h1 className="mt-2 font-display text-4xl font-extrabold tracking-tight sm:text-5xl" style={{ color: FG }}>
+          Job proof
+        </h1>
+        <p className="mt-3 max-w-xl text-sm leading-relaxed" style={{ color: MUTED }}>
+          No wallet required. The receipt registry on chain is authoritative — API fields alone are
+          not a pass.
+        </p>
+
+        {err && (
+          <p className="mt-6 text-sm" style={{ color: DANGER }}>
+            {err}
+          </p>
+        )}
+        {!err && !job && !onchain && (
+          <p className="mt-6 text-sm" style={{ color: MUTED }}>
+            {data?.note ?? "Loading…"}
+          </p>
+        )}
+
+        {(job || onchain) && (
+          <div className="mt-8 space-y-6">
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Status
+              </p>
+              <p className="mt-2 font-display text-3xl font-extrabold" style={{ color: statusColor }}>
+                {outcome.label}
+              </p>
+              <p className="mt-2 break-all font-mono text-xs" style={{ color: MUTED }}>
+                {job?.id ?? jobId}
+              </p>
+              {outcome.verifiedOnChain ? (
+                <p className="mt-3 text-sm font-medium" style={{ color: ACCENT }}>
+                  Verified on 0G — registry record exists
+                </p>
+              ) : (
+                <p className="mt-3 text-sm" style={{ color: MUTED }}>
+                  No registry row yet. Explorer txs below are still the source of truth for lock /
+                  release / refund.
+                </p>
+              )}
+            </section>
+
+            <section>
+              <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                Execution
+              </h2>
+              <ol className="mt-3 space-y-2">
+                {timeline.map((step) => (
+                  <li key={step.label} className="flex items-center gap-3 text-sm">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: step.done ? ACCENT : LINE }}
+                    />
+                    <span style={{ color: step.done ? FG : FAINT }}>{step.label}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                Financials
+              </h2>
+              <dl className="mt-4 grid gap-3 text-sm">
+                <Meta label="Quoted / locked" value={job?.quote?.lock0gDisplay} />
+                <Meta label="Model" value={job?.quote?.modelId} />
+                <Meta
+                  label="Policy"
+                  value={
+                    onchain
+                      ? onchain.allowed
+                        ? "ALLOW (on-chain registry)"
+                        : "DENY (on-chain registry)"
+                      : job?.tee?.allow
+                        ? "TeeML ALLOW claimed by API — not on-chain yet"
+                        : job?.tee?.reason || job?.denial
+                  }
+                  tone={onchain?.allowed ? "ok" : job?.denial ? "fail" : undefined}
+                />
+                {job?.denial && <Meta label="Denied" value={job.denial} tone="fail" />}
+              </dl>
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                Proof
+              </h2>
+              <dl className="mt-4 grid gap-4 text-sm">
+                <HashRow label="Lock tx" value={job?.lockTx} href={job?.lockTx ? explorerTx(job.lockTx) : undefined} />
+                <HashRow
+                  label="Release tx"
+                  value={job?.releaseTx}
+                  href={job?.releaseTx ? explorerTx(job.releaseTx) : undefined}
+                />
+                <HashRow
+                  label="Refund tx"
+                  value={job?.refundTx}
+                  href={job?.refundTx ? explorerTx(job.refundTx) : undefined}
+                />
+                <HashRow
+                  label="Receipt tx"
+                  value={job?.receiptTx}
+                  href={job?.receiptTx ? explorerTx(job.receiptTx) : undefined}
+                />
+                <HashRow label="Storage root" value={storageRoot} href={storageHref ?? undefined} />
+                <HashRow
+                  label="TEE signer"
+                  value={onchain?.teeSigner}
+                  href={onchain?.teeSigner ? explorerAddress(onchain.teeSigner) : undefined}
+                />
+                <HashRow label="Quote hash" value={onchain?.quoteHash ?? job?.quote?.quoteHash} />
+                <HashRow
+                  label="Recorder"
+                  value={onchain?.recorder}
+                  href={onchain?.recorder ? explorerAddress(onchain.recorder) : undefined}
+                />
+              </dl>
+            </section>
+
+            <section className="flex flex-wrap gap-2">
+              {job?.lockTx && (
+                <a
+                  className="rounded-full px-4 py-2 text-sm font-medium"
+                  style={{ background: ACCENT, color: "#06130c" }}
+                  href={explorerTx(job.lockTx)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open lock on explorer
+                </a>
+              )}
+              {job?.releaseTx && (
+                <a
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{ borderColor: LINE, color: FG }}
+                  href={explorerTx(job.releaseTx)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open release
+                </a>
+              )}
+              {storageHref && (
+                <a
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{ borderColor: LINE, color: FG }}
+                  href={storageHref}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open storage proof
+                </a>
+              )}
+              <button
+                type="button"
+                className="rounded-full border px-4 py-2 text-sm"
+                style={{ borderColor: LINE, color: FG }}
+                onClick={() => void copyReceipt()}
+              >
+                {copied ? "Copied" : "Copy receipt"}
+              </button>
+            </section>
+          </div>
+        )}
+      </main>
     </div>
   );
 }
 
-function Row({ label, value, href }: { label: string; value?: string | null; href?: string }) {
+function Meta({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value?: string | null;
+  tone?: "ok" | "fail";
+}) {
+  if (!value) return null;
+  const color = tone === "ok" ? ACCENT : tone === "fail" ? DANGER : FG;
+  return (
+    <div className="border-b pb-3" style={{ borderColor: LINE }}>
+      <dt className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+        {label}
+      </dt>
+      <dd className="mt-1 break-all text-base font-medium" style={{ color }}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function HashRow({ label, value, href }: { label: string; value?: string | null; href?: string }) {
   if (!value) return null;
   return (
-    <div className="border-b border-[var(--p-border,#1e2622)] pb-3">
-      <dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--p-muted)]">{label}</dt>
+    <div className="border-b pb-3" style={{ borderColor: LINE }}>
+      <dt className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+        {label}
+      </dt>
       {href ? (
         <dd className="mt-1 break-all">
-          <a className="text-[var(--p-accent-text,#39e08a)] hover:underline" href={href} target="_blank" rel="noreferrer">
+          <a className="text-sm hover:underline" style={{ color: ACCENT }} href={href} target="_blank" rel="noreferrer">
             {value}
           </a>
         </dd>
       ) : (
-        <dd className="mt-1 break-all font-mono text-xs">{value}</dd>
+        <dd className="mt-1 break-all font-mono text-xs" style={{ color: FG }}>
+          {value}
+        </dd>
       )}
     </div>
   );

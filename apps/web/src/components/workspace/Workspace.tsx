@@ -934,6 +934,14 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
                 payMode={payMode}
                 thinkingLines={thinkingLines}
               />
+              {jobId && status && TERMINAL_STATUSES.includes(status) && (
+                <a
+                  href={`/verify/${jobId}`}
+                  className="mt-6 inline-flex h-12 items-center justify-center bg-signal px-7 font-display text-sm font-medium text-ink clip-facet-right"
+                >
+                  View proof
+                </a>
+              )}
             </motion.div>
           )}
 

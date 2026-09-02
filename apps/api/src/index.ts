@@ -29,7 +29,7 @@ import {
 } from "./safeSession.js";
 import { serviceIdToTask, webJobRow, webQuoteDto, ZEROG_SERVICES } from "./jobDesk.js";
 import { openFlowHistory, redisClientFromEnv } from "./flowHistory.js";
-import { getDurableJob, getDurableQuote, putDurableJob } from "./jobPersist.js";
+import { getDurableJob, getDurableQuote, getLastJobId, putDurableJob, putLastJobId } from "./jobPersist.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -137,9 +137,33 @@ async function persistJob(job: StoredJob): Promise<void> {
   if (!jobRedis) return;
   try {
     await putDurableJob(jobRedis, job);
+    if (job.wallet) await putLastJobId(jobRedis, job.wallet, job.id);
   } catch {
     /* Redis must not take down the request; GET hydrates on the next process. */
   }
+}
+
+async function lastJobForWallet(wallet?: string): Promise<StoredJob | undefined> {
+  if (!wallet) return undefined;
+  let addr: string;
+  try {
+    addr = getAddress(wallet);
+  } catch {
+    return undefined;
+  }
+  const mem = [...jobs.values()]
+    .filter((j) => {
+      try {
+        return Boolean(j.wallet) && getAddress(j.wallet) === addr;
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (mem) return mem;
+  if (!jobRedis) return undefined;
+  const id = await getLastJobId(jobRedis, addr);
+  return id ? getJob(id) : undefined;
 }
 
 async function getJob(id: string): Promise<StoredJob | undefined> {
@@ -152,6 +176,7 @@ async function getJob(id: string): Promise<StoredJob | undefined> {
     stored.events = stored.events ?? [];
     jobs.set(stored.id, stored);
     quotes.set(stored.quote.quoteId, stored.quote);
+    if (stored.wallet) await putLastJobId(jobRedis, stored.wallet, stored.id).catch(() => {});
     return stored;
   } catch {
     return undefined;
@@ -1454,6 +1479,35 @@ app.post("/v1/flow/chat", async (req) => {
         semantic: "The request is an unconstrained transfer, not a Beacon job.",
       },
       cards: [{ type: "denied", title: "Why was I blocked?" }],
+    };
+  }
+  if (/verify/.test(text) && /last|proof|receipt|result/.test(text)) {
+    const last = await lastJobForWallet(body.wallet);
+    if (!last) {
+      return {
+        reply: "No job is on file for this wallet yet. Run an image or research job first.",
+        cards: [],
+      };
+    }
+    const onchainish = Boolean(last.releaseTx || last.refundTx);
+    return {
+      reply: onchainish
+        ? `Job ${last.id.slice(0, 8)}… is ${last.status}. Open the proof — the registry is authoritative.`
+        : `Job ${last.id.slice(0, 8)}… is ${last.status}. Proof updates when lock/release land on Aristotle.`,
+      cards: [
+        {
+          type: "desk_link",
+          title: "View proof",
+          summary: `${last.quote.modelId} · ${last.status}`,
+          href: `/verify/${last.id}`,
+        },
+        {
+          type: "desk_link",
+          title: "Open desk",
+          summary: "Result, image, and escrow txs.",
+          href: `/flow/desk?job=${last.id}`,
+        },
+      ],
     };
   }
   if (/swap|convert|usdc/.test(text)) {

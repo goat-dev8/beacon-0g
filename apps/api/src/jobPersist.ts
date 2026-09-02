@@ -58,6 +58,19 @@ export async function putDurableJob(client: RedisRest, job: { id: string; quote:
   await redisCmd(client, ["SET", quoteKey(job.quote.quoteId), JSON.stringify(serializeQuote(job.quote))]);
 }
 
+export async function putLastJobId(client: RedisRest, wallet: string, jobId: string) {
+  const addr = wallet.trim().toLowerCase();
+  if (!addr.startsWith("0x") || addr === "0x0000000000000000000000000000000000000000") return;
+  await redisCmd(client, ["SET", `job:last:${addr}`, jobId]);
+}
+
+export async function getLastJobId(client: RedisRest, wallet: string): Promise<string | null> {
+  const addr = wallet.trim().toLowerCase();
+  if (!addr.startsWith("0x")) return null;
+  const raw = await redisCmd(client, ["GET", `job:last:${addr}`]);
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+}
+
 export async function getDurableJob<T extends { quote: JobQuote }>(
   client: RedisRest,
   id: string,

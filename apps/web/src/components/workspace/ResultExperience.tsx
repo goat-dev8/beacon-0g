@@ -480,7 +480,15 @@ export function ResultExperience({
       </div>
 
       <div className="mt-6">
-        <FacetCtaPair left="Home" right="New job" leftTo="/" />
+        <a
+          href={`/verify/${jobId}`}
+          className="inline-flex h-12 items-center justify-center bg-signal px-7 font-display text-sm font-medium text-ink clip-facet-right"
+        >
+          View proof
+        </a>
+        <div className="mt-3">
+          <FacetCtaPair left="Home" right="New job" leftTo="/" />
+        </div>
         <Button className="mt-3" variant="ghost" onClick={onNew}>
           Start another job
         </Button>

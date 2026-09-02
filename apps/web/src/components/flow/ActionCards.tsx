@@ -4,6 +4,7 @@ import { ExternalLink, CheckCircle2, Clock } from "lucide-react";
 import { api } from "@/lib/api";
 import { NETWORK } from "@/lib/chain";
 import { explorerTx } from "@/lib/explorers";
+import { jobIdFromDeskHref } from "@/lib/verifyProof";
 import { cn } from "@/lib/utils";
 import { ensureSafeAgentSession } from "@/lib/safeSession";
 import { AgentText } from "@/components/AgentText";
@@ -726,6 +727,14 @@ export function ActionCard({
             <AgentText text={content} />
           </div>
         )}
+        {typeof card.jobId === "string" && card.jobId && (
+          <Link
+            to={`/verify/${card.jobId}`}
+            className="mt-3 inline-flex rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink"
+          >
+            View proof
+          </Link>
+        )}
       </div>
     );
   }
@@ -743,14 +752,27 @@ export function ActionCard({
   }
 
   if (card.type === "desk_link") {
-    const cta = String(card.href).includes("/security") ? "Open Safe" : "Open desk";
+    const href = String(card.href);
+    const isProof = href.includes("/verify/");
+    const deskJob = jobIdFromDeskHref(href);
+    const cta = isProof ? "View proof" : href.includes("/security") ? "Open Safe" : "Open desk";
     return (
       <div className="rounded-2xl border border-[var(--p-border)] p-4">
         <p className="font-medium text-[var(--p-fg)]">{card.title}</p>
         <p className="mt-1 text-sm text-[var(--p-muted)]">{String(card.summary)}</p>
-        <Link to={String(card.href)} className="mt-3 inline-flex rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink">
-          {cta}
-        </Link>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link to={href} className="inline-flex rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink">
+            {cta}
+          </Link>
+          {deskJob && !isProof && (
+            <Link
+              to={`/verify/${deskJob}`}
+              className="inline-flex rounded-full border border-[var(--p-border)] px-4 py-2 text-sm text-[var(--p-fg)]"
+            >
+              View proof
+            </Link>
+          )}
+        </div>
       </div>
     );
   }

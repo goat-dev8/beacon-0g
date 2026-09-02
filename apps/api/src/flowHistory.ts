@@ -78,9 +78,9 @@ async function tryPostgres(env: BeaconEnv): Promise<FlowHistory | null> {
   if (!url) return null;
   const pool = new Pool({
     connectionString: url,
-    ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
+    ssl: env.DATABASE_SSL || /supabase\.com|:6543\b/.test(url) ? { rejectUnauthorized: false } : undefined,
     max: 5,
-    connectionTimeoutMillis: 4000,
+    connectionTimeoutMillis: 8000,
   });
   try {
     await pool.query("select 1");
