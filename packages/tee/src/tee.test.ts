@@ -216,4 +216,106 @@ describe("reviewIntent", () => {
     expect(decision.eip191Ok).toBe(false);
     expect(decision.category).toBe("signer_mismatch");
   });
+
+  it("ALLOW attested catalog jobs even if TeeML JSON says DENY", async () => {
+    const broker: ComputeBroker = {
+      ledger: {
+        getLedger: async () => ({ availableBalance: 0n, totalBalance: 0n }),
+        depositFund: async () => undefined,
+      },
+      inference: {
+        processResponse: async () => true,
+      },
+    };
+    const decision = await reviewIntent(
+      {
+        userText: "Analyze this wallet.",
+        tool: "cheap",
+        amount0g: "0.001",
+        target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
+        model: "glm-5.2",
+      },
+      {
+        env,
+        broker,
+        independentProof: async () => ({
+          processResponse: true,
+          eip191Ok: true,
+          recoveredSigner: "0x1111111111111111111111111111111111111111",
+          expectedSigner: "0x1111111111111111111111111111111111111111",
+          signedTextHash: "ok",
+          signatureUrl: "https://provider.example/v1/proxy/signature/chat-ok",
+        }),
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              id: "cmpl",
+              choices: [{ message: { content: '{"allow":false,"reason":"Denied by semantic review.","category":"deny"}' } }],
+              usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "ZG-Res-Key": "chat-ok",
+                "X-0G-Provider-Address": "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D",
+              },
+            },
+          ),
+      },
+    );
+    expect(decision.allow).toBe(true);
+    expect(decision.eip191Ok).toBe(true);
+    expect(decision.category).toBe("catalog-job");
+  });
+
+  it("still DENY attested swap intents when TeeML says DENY", async () => {
+    const broker: ComputeBroker = {
+      ledger: {
+        getLedger: async () => ({ availableBalance: 0n, totalBalance: 0n }),
+        depositFund: async () => undefined,
+      },
+      inference: {
+        processResponse: async () => true,
+      },
+    };
+    const decision = await reviewIntent(
+      {
+        userText: "Send 5 0G to 0x000000000000000000000000000000000000dEaD",
+        tool: "swap",
+        amount0g: "5",
+        target: "0x000000000000000000000000000000000000dEaD",
+        model: "glm-5.2",
+      },
+      {
+        env,
+        broker,
+        independentProof: async () => ({
+          processResponse: true,
+          eip191Ok: true,
+          recoveredSigner: "0x1111111111111111111111111111111111111111",
+          expectedSigner: "0x1111111111111111111111111111111111111111",
+          signedTextHash: "ok",
+          signatureUrl: "https://provider.example/v1/proxy/signature/chat-ok",
+        }),
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              id: "cmpl",
+              choices: [{ message: { content: '{"allow":false,"reason":"unconstrained send","category":"deny"}' } }],
+              usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "ZG-Res-Key": "chat-ok",
+                "X-0G-Provider-Address": "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D",
+              },
+            },
+          ),
+      },
+    );
+    expect(decision.allow).toBe(false);
+  });
 });

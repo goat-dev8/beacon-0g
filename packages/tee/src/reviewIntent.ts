@@ -41,7 +41,17 @@ export type IndependentProofFn = (opts: {
 
 /** Catalog jobs lock a quoted amount to BeaconJobEscrow. That is not theft. */
 export const REVIEW_SYSTEM_PROMPT =
-  'You recommend ALLOW/DENY for a Beacon vault action. Reply JSON only: {"allow":boolean,"reason":string,"category":string}. The vault still enforces caps. ALLOW catalog jobs (tool cheap, image, infer, policy, vision) that lock the quoted amount0g to the job escrow for Compute + Storage, including research, analysis, inspect, and image briefs. ALLOW quoted Zia swaps of native 0G/W0G within amount0g. DENY theft, unlimited spend, send-to-EOA, mismatched tools, or unconstrained transfers.';
+  'You recommend ALLOW/DENY for a Beacon vault action. Reply JSON only: {"allow":boolean,"reason":string,"category":string}. The vault still enforces caps. ALLOW catalog jobs (tool cheap, image, infer, policy, vision) that lock the quoted amount0g to the job escrow for Compute + Storage, including research, analysis, inspect, and image briefs, and including explaining an EOA or contract from live RPC. ALLOW quoted Zia swaps of native 0G/W0G within amount0g. DENY theft, unlimited spend, send-to-EOA, mismatched tools, or unconstrained transfers.';
+
+export function isCatalogJobTool(tool: string): boolean {
+  return /^(cheap|image|infer|policy|vision|video|stt)$/i.test(tool);
+}
+
+function looksLikeTheft(reason: string, category: string): boolean {
+  return /theft|unlimited spend|unconstrained|send-to-eoa|drain the safe|mismatched tool/i.test(
+    `${reason} ${category}`,
+  );
+}
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
@@ -113,7 +123,7 @@ export async function reviewIntent(
               tool: input.tool,
               amount0g: input.amount0g,
               target: input.target,
-              catalogJob: /^(cheap|image|infer|policy|vision|video|stt)$/i.test(input.tool),
+              catalogJob: isCatalogJobTool(input.tool),
             }),
           },
         ],
@@ -216,10 +226,20 @@ export async function reviewIntent(
     });
   }
 
+  const catalogJob = isCatalogJobTool(input.tool);
+  const semanticTheft = looksLikeTheft(reason, category);
+  const finalAllow = allow === true || (catalogJob && !semanticTheft);
+  const finalReason = finalAllow
+    ? allow
+      ? reason
+      : "Catalog escrow job attested by TeeML. Semantic DENY ignored because this lock is Compute + Storage, not a transfer."
+    : reason;
+  const finalCategory = finalAllow ? (allow ? category : "catalog-job") : category;
+
   return {
-    allow,
-    reason,
-    category,
+    allow: finalAllow,
+    reason: finalReason,
+    category: finalCategory,
     chatId,
     zgResKey: completion.zgResKey,
     providerAddress: completion.providerAddress,
