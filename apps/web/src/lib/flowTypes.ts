@@ -96,6 +96,7 @@ export const LIVE_CARD_TYPES = new Set([
   "x402_quote",
   "media_result",
   "inspect_result",
+  "spend_breakdown",
   "quote",
   "authorization_receipt",
   "insufficient",

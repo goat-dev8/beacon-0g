@@ -39,6 +39,13 @@ import { registerMcpRoutes } from "./mcpRoutes.js";
 import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
 import { classifyFlowIntent } from "./flowRouter.js";
 import { parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
+import {
+  collectSpendHashes,
+  composeSpendReport,
+  receiptGasWei,
+  type SpendActivity,
+  type SpendJob,
+} from "./spendAnalytics.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -1922,55 +1929,33 @@ app.post("/v1/flow/chat", async (req) => {
     classified.kind === "spend" ||
     /what did i spend|show what the last job cost|spend(ing)? summary|cost today|how much did i spend/.test(text)
   ) {
-    const last = await lastJobForWallet(body.wallet);
-    const ids = jobRedis && body.wallet ? await listWalletJobIds(jobRedis, body.wallet) : [];
-    const rows = [];
-    for (const id of ids.slice(0, 8)) {
-      const job = await getJob(id);
-      if (!job) continue;
-      rows.push({
-        id: job.id,
-        status: job.status,
-        task: job.task,
-        lock0g: format0g(job.quote.lock0g),
-        modelId: job.quote.modelId,
-      });
+    if (!body.wallet) {
+      return { reply: "Connect a wallet to read escrow, Safe window, swaps, and gas separately.", cards: [] };
     }
-    const imageOnly = /image/.test(text);
     const swapAsk = /swap/.test(text);
-    const filtered = imageOnly ? rows.filter((r) => r.task === "image") : rows;
-    if (!last && filtered.length === 0) {
-      return {
-        reply: swapAsk
-          ? "Zia swaps debit Beacon Safe wealth (windowSpent). They are not job escrow. Do not add the two."
-          : "No Beacon jobs are on file for this wallet yet.",
-        cards: [],
-      };
-    }
-    const shown = last ?? (await getJob(filtered[0]?.id ?? ""));
-    const cards: Array<Record<string, unknown>> = [
-      {
-        type: "quote",
-        unit: "0G",
-        title: imageOnly ? "Image job escrow" : "Job spend (escrow)",
-        summary:
-          filtered.map((r) => `${r.id.slice(0, 8)} ${r.status} ${r.lock0g}`).join(" · ") ||
-          `${shown?.status ?? ""} · ${shown ? format0g(shown.quote.lock0g) : ""}`,
-      },
-    ];
-    if (shown) {
-      cards.push({
-        type: "desk_link",
-        title: "View proof",
-        summary: shown.status,
-        href: `/verify/${shown.id}`,
-      });
-    }
+    const { report } = await spendReportForWallet(body.wallet);
+    const last = await lastJobForWallet(body.wallet);
+    const laneLine = report.lanes.map((l) => `${l.label} ${l.amount0g}`).join(" · ");
     return {
-      reply: shown
-        ? `${swapAsk ? "Swaps are Safe windowSpent, not this list. " : ""}Job records (escrow), not a chain archive. Last ${shown.id.slice(0, 8)}… ${shown.status} locked ${format0g(shown.quote.lock0g)}. Safe windowSpent is a different number — do not add them.`
-        : "No Beacon jobs are on file for this wallet yet.",
-      cards,
+      reply: `${swapAsk ? "Zia principal is a slice of the Safe window. " : ""}${laneLine}. ${report.honesty}`,
+      cards: [
+        {
+          type: "spend_breakdown",
+          title: "Spend ledgers",
+          honesty: report.honesty,
+          lanes: report.lanes,
+        },
+        ...(last
+          ? [
+              {
+                type: "desk_link",
+                title: "View proof",
+                summary: last.status,
+                href: `/verify/${last.id}`,
+              },
+            ]
+          : []),
+      ],
     };
   }
   const swapIntent = parseSwapIntent(body.text);
@@ -2019,6 +2004,7 @@ app.post("/v1/flow/chat", async (req) => {
         }
       }
       const quotedAt = new Date().toISOString();
+      const quoteExpiresAt = new Date(Date.now() + 90_000).toISOString();
       return {
         reply: quote.executableFromSafe
           ? `Zia quote for ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. Pool fee ${quote.fee}. Impact ${quote.impactBps} bps. Min ${minReceived} ${quote.tokenOutSymbol}.`
@@ -2050,6 +2036,7 @@ app.post("/v1/flow/chat", async (req) => {
             pool,
             impactBps: quote.impactBps,
             quotedAt,
+            quoteExpiresAt,
             policyStatus,
             route: `exactInputSingle ${quote.tokenInSymbol}→${quote.tokenOutSymbol} fee ${quote.fee}`,
             warning: quote.executableFromSafe
@@ -2216,14 +2203,7 @@ function parseCards(raw: unknown): unknown {
   return raw ?? [];
 }
 
-function requireHistory() {
-  if (!history || !historyReady) throw new AppError("HISTORY_PERSISTENCE_FAILED");
-  return history;
-}
-
-app.get("/v1/flow/spend", async (req) => {
-  const wallet = String((req.query as { wallet?: string }).wallet ?? "");
-  if (!wallet) return { ok: true, jobs: [], vault: null, honesty: "Connect a wallet." };
+async function spendReportForWallet(wallet: string) {
   const owner = getAddress(wallet);
   const ids = jobRedis ? await listWalletJobIds(jobRedis, owner) : [];
   const memIds = [...jobs.values()]
@@ -2236,37 +2216,85 @@ app.get("/v1/flow/spend", async (req) => {
     })
     .map((j) => j.id);
   const all = [...new Set([...ids, ...memIds])];
-  const jobRows = [];
+  const spendJobs: SpendJob[] = [];
   for (const id of all.slice(0, 20)) {
     const job = await getJob(id);
     if (!job) continue;
-    jobRows.push({
+    spendJobs.push({
       id: job.id,
       status: job.status,
-      lock0g: format0g(job.quote.lock0g),
-      modelId: job.quote.modelId,
+      lock0g: job.quote.lock0g,
       lockTx: job.lockTx ?? null,
       releaseTx: job.releaseTx ?? null,
       refundTx: job.refundTx ?? null,
     });
   }
+  let activity: SpendActivity[] = [];
+  if (history) {
+    try {
+      const rows = await history.listActivity(owner);
+      activity = rows.map((r) => ({
+        kind: String((r as { kind?: string }).kind ?? ""),
+        title: String((r as { title?: string }).title ?? ""),
+        ref_id: (r as { ref_id?: string | null }).ref_id ?? null,
+        explorer_url: (r as { explorer_url?: string | null }).explorer_url ?? null,
+        meta: ((r as { meta?: Record<string, unknown> | null }).meta ?? null) as Record<string, unknown> | null,
+      }));
+    } catch {
+      activity = [];
+    }
+  }
+  let gasWei = 0n;
+  for (const h of collectSpendHashes(spendJobs, activity)) {
+    try {
+      const rec = await provider.getTransactionReceipt(h);
+      gasWei += receiptGasWei(rec);
+    } catch {
+      /* missing receipt is not a spend */
+    }
+  }
   const safe = await resolveSafe(owner);
+  let windowSpent: bigint | null = null;
   let vault: { address: string; windowSpent: string; windowBudget: string } | null = null;
   if (safe) {
-    const [windowSpent] = await vaultView(safe, "windowSpent");
-    const [windowBudget] = await vaultView(safe, "rollingWindowBudget");
+    const [spent] = await vaultView(safe, "windowSpent");
+    const [budget] = await vaultView(safe, "rollingWindowBudget");
+    windowSpent = spent as bigint;
     vault = {
       address: safe,
-      windowSpent: format0g(windowSpent),
-      windowBudget: format0g(windowBudget),
+      windowSpent: format0g(spent as bigint),
+      windowBudget: format0g(budget as bigint),
     };
   }
   return {
-    ok: true,
-    jobs: jobRows,
+    report: composeSpendReport({ jobs: spendJobs, windowSpent, activity, gasWei }),
+    jobs: spendJobs,
     vault,
-    honesty:
-      "Job lock/release is escrow. windowSpent is the Safe rolling window. Do not add them together.",
+  };
+}
+
+function requireHistory() {
+  if (!history || !historyReady) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  return history;
+}
+
+app.get("/v1/flow/spend", async (req) => {
+  const wallet = String((req.query as { wallet?: string }).wallet ?? "");
+  if (!wallet) return { ok: true, jobs: [], vault: null, lanes: [], honesty: "Connect a wallet." };
+  const { report, jobs: spendJobs, vault } = await spendReportForWallet(wallet);
+  return {
+    ok: true,
+    jobs: spendJobs.map((j) => ({
+      id: j.id,
+      status: j.status,
+      lock0g: format0g(j.lock0g),
+      lockTx: j.lockTx ?? null,
+      releaseTx: j.releaseTx ?? null,
+      refundTx: j.refundTx ?? null,
+    })),
+    vault,
+    lanes: report.lanes,
+    honesty: report.honesty,
   };
 });
 

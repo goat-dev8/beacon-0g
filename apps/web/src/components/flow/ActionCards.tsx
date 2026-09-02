@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { ensureSafeAgentSession } from "@/lib/safeSession";
 import { executeLifiBridge } from "@/lib/wallet";
 import { classifyExecutionFailure } from "@/lib/walletFailures";
+import { jobPipeline, swapQuoteExpired } from "@/lib/quoteFreshness";
 import { SafeMarkdown } from "@/components/SafeMarkdown";
 import type { CardExecutionState, AgentCard } from "@/lib/executionPhases";
 import type { ConvState, PaidResendMeta } from "@/lib/flowTypes";
@@ -349,7 +350,16 @@ export function ActionCard({
                       const st = await api.lifiBridgeStatus(result.sourceHash, fromChainId);
                       setSendStatus(st.complete ? "confirmed" : "pending");
                       if (st.receivingTx) setSendHash(st.receivingTx);
-                      if (st.complete) break;
+                      if (st.complete && st.receivingTx) {
+                        onTxConfirmed?.({
+                          kind: "bridge",
+                          title: `${String(card.title ?? "Bridge")} destination`,
+                          hash: st.receivingTx,
+                          explorerUrl: explorerTx(st.receivingTx, 16661),
+                          meta: { complete: true, source: result.sourceHash },
+                        });
+                        break;
+                      }
                       await new Promise((r) => setTimeout(r, 8000));
                     }
                   } catch (e) {
@@ -500,6 +510,27 @@ export function ActionCard({
             Open in Explorer
           </a>
         ) : null}
+      </div>
+    );
+  }
+
+  if (card.type === "spend_breakdown") {
+    const lanes = Array.isArray(card.lanes) ? (card.lanes as Array<{ id: string; label: string; amount0g: string; note: string }>) : [];
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {String(card.title ?? "Spend ledgers")}
+        </p>
+        <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+          {lanes.map((lane) => (
+            <div key={lane.id} className="rounded-xl bg-[var(--p-surface-2)] px-3 py-2">
+              <p className="font-mono text-[10px] text-[var(--p-muted)]">{lane.label}</p>
+              <p className="font-display text-lg text-[var(--p-fg)]">{lane.amount0g}</p>
+              <p className="mt-1 text-xs text-[var(--p-muted)]">{lane.note}</p>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-amber-200/90">{String(card.honesty ?? "")}</p>
       </div>
     );
   }
@@ -751,6 +782,7 @@ export function ActionCard({
     const est = String(card.estimatedOut ?? card.estimatedFxrp);
     const isSafe = card.mode === "beacon_safe" || card.requiresMetaMask === false;
     const canExecute = isSafe && card.executableFromSafe !== false;
+    const quoteStale = swapQuoteExpired(typeof card.quotedAt === "string" ? card.quotedAt : undefined);
     const chainId = Number(card.chainId ?? 16661);
     if (!isSafe && (chainId === 14 || card.mode === "sparkdex_mainnet" || card.requiresChainSwitch)) {
       return (
@@ -828,6 +860,12 @@ export function ActionCard({
               <p className="text-[var(--p-fg)]">{String(card.quotedAt)}</p>
             </div>
           )}
+          {card.quoteExpiresAt != null && (
+            <div>
+              <p>Quote expires</p>
+              <p className="text-[var(--p-fg)]">{String(card.quoteExpiresAt)}</p>
+            </div>
+          )}
           {card.policyStatus != null && (
             <div className="sm:col-span-2">
               <p>Policy</p>
@@ -872,12 +910,15 @@ export function ActionCard({
           {wallet && swapStatus !== "confirmed" && canExecute && (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || quoteStale}
               onClick={() => {
                 void (async () => {
                   setBusy(true);
                   setError(null);
                   try {
+                    if (swapQuoteExpired(typeof card.quotedAt === "string" ? card.quotedAt : undefined)) {
+                      throw new Error("OFFER_EXPIRED");
+                    }
                     if (!isSafe) {
                       throw new Error(
                         "Beacon refused this swap. Execute from Beacon Safe so only the allowlisted Zia router can spend.",
@@ -941,6 +982,9 @@ export function ActionCard({
             Aristotle faucet
           </a>
         </div>
+        {quoteStale ? (
+          <p className="mt-2 text-sm text-[var(--p-danger)]">This quote expired. Ask for a new quote before executing.</p>
+        ) : null}
         {error && (
           <div className="mt-2 space-y-2">
             <p className="text-xs text-[var(--p-danger)]">{error}</p>
@@ -1233,6 +1277,19 @@ export function ActionCard({
           <div>Model · {String(card.modelId ?? "")}</div>
         </dl>
         {jobStatus && <p className="mt-2 text-sm text-[var(--p-fg)]">Status {jobStatus}</p>}
+        {(() => {
+          const pipe = jobPipeline(jobStatus);
+          return (
+            <div className="mt-2">
+              <p className="font-mono text-[10px] text-[var(--p-muted)]">
+                {pipe.label} · {pipe.pct}%
+              </p>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[var(--p-surface-2)]">
+                <div className="h-full bg-signal" style={{ width: `${pipe.pct}%` }} />
+              </div>
+            </div>
+          );
+        })()}
         {jobDenial && <p className="mt-2 text-sm text-[var(--p-danger)]">{jobDenial}</p>}
         {jobImage && (
           <img src={`data:image/png;base64,${jobImage}`} alt="Job result" className="mt-3 max-h-64 rounded-xl" />

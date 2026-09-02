@@ -37,4 +37,12 @@ describe("historyMeta", () => {
     });
     expect(meta.capability).toBe("swap");
   });
+
+  it("marks spend ledgers as spend", () => {
+    const meta = historyMeta({
+      lastMessage: "Job escrow 0.002 0G · Safe window 0.03 0G.",
+      cards: [{ type: "spend_breakdown", lanes: [] }],
+    });
+    expect(meta.capability).toBe("spend");
+  });
 });

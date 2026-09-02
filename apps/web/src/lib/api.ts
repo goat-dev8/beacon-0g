@@ -247,6 +247,7 @@ export const api = {
         refundTx: string | null;
       }>;
       vault: { address: string; windowSpent: string; windowBudget: string } | null;
+      lanes?: Array<{ id: string; label: string; amount0g: string; note: string }>;
       honesty: string;
     }>(`/v1/flow/spend?wallet=${encodeURIComponent(wallet)}`),
   artifacts: (jobId: string) =>
