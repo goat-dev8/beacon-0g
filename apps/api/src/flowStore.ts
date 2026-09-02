@@ -53,10 +53,13 @@ CREATE TABLE IF NOT EXISTS flow_activity (
 
 export async function listConversations(pool: pg.Pool, wallet: string) {
   const { rows } = await pool.query(
-    `SELECT id, title, agent_id, pinned, updated_at, created_at
-     FROM flow_conversations
-     WHERE LOWER(wallet) = LOWER($1) AND archived = FALSE
-     ORDER BY pinned DESC, updated_at DESC
+    `SELECT c.id, c.title, c.agent_id, c.pinned, c.updated_at, c.created_at,
+            (SELECT m.text FROM flow_messages m
+             WHERE m.conversation_id = c.id
+             ORDER BY m.created_at DESC LIMIT 1) AS last_message
+     FROM flow_conversations c
+     WHERE LOWER(c.wallet) = LOWER($1) AND c.archived = FALSE
+     ORDER BY c.pinned DESC, c.updated_at DESC
      LIMIT 50`,
     [wallet],
   );

@@ -102,9 +102,13 @@ export async function chatCompletions(
       (errObj && typeof errObj.message === "string" && errObj.message) ||
       (typeof json.message === "string" && json.message) ||
       `0G Router chat/completions failed (${res.status}).`;
-    throw new AppError("COMPUTE_FAILED", {
-      message: msg,
-      details: { status: res.status, body: json },
+    const code = /insufficient balance/i.test(msg) ? "INSUFFICIENT_TREASURY" : "COMPUTE_FAILED";
+    throw new AppError(code, {
+      message:
+        code === "INSUFFICIENT_TREASURY"
+          ? "0G Compute treasury could not pay the provider. This is not your Safe balance. Escrow refunds."
+          : msg,
+      details: { status: res.status },
     });
   }
 

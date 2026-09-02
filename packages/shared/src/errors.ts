@@ -22,6 +22,8 @@ export type ErrorCode =
   | "SWAP_REFUSED"
   | "STORAGE_FAILED"
   | "COMPUTE_FAILED"
+  | "INSUFFICIENT_TREASURY"
+  | "HISTORY_PERSISTENCE_FAILED"
   | "ENV_INVALID";
 
 const USER_MESSAGES: Record<ErrorCode, string> = {
@@ -48,6 +50,9 @@ const USER_MESSAGES: Record<ErrorCode, string> = {
   SWAP_REFUSED: "Beacon refused this swap because verified liquidity is insufficient.",
   STORAGE_FAILED: "We could not store evidence on 0G Storage. The job will not be marked complete.",
   COMPUTE_FAILED: "0G Compute did not return a usable result. You have not been charged for a pass.",
+  INSUFFICIENT_TREASURY:
+    "0G Compute treasury could not pay the provider. This is not your Safe balance. Escrow refunds.",
+  HISTORY_PERSISTENCE_FAILED: "Chat could not be saved. Connect a wallet and try again.",
   ENV_INVALID: "This deployment is not configured for 0G Aristotle.",
 };
 
@@ -74,6 +79,8 @@ function statusForCode(code: ErrorCode): number {
       return 429;
     case "NOT_READY":
     case "SERVICE_UNAVAILABLE":
+    case "INSUFFICIENT_TREASURY":
+    case "HISTORY_PERSISTENCE_FAILED":
       return 503;
     default:
       return 500;

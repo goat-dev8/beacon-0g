@@ -56,10 +56,12 @@ Set `TEE_FAIL_CLOSED=true`. `CHAIN_ID` must be `16661`. Do not point jobs at sim
 
 - Web: https://beacon-0g.vercel.app
 - API: https://beacon-0g-api.onrender.com
-- History: [`HISTORY.md`](./HISTORY.md)
 
 ## Honesty
 
 - Vault wealth is native 0G + W0G. Bridged USDC out of a Zia swap is **not** vault wealth.
 - Router `verify_tee` / `x_0g_trace` is not an independent proof. Independent check is EIP-191 recover against the TEE signer (and SDK `processResponse` when the broker is configured).
-- Hub swap UI “Powered By” a different factory is not Zia. Beacon pins Zia factory `0x6F3945Ab27296D1D66D8EEb042ff1B4fb2E0CE70`.
+- Hub swap UI “Powered By” a different factory is not Zia. Beacon pins Zia factory `0x6F3945Ab27296D1D66D8EEb042ff1B4fb2E0CE70` and SwapRouter `0x18cCa38E51c4C339A6BD6e174025f08360FEEf30` ([Zia contracts](https://docs.zia.finance/security/contracts)).
+- Get native 0G at [get.0g.ai](https://get.0g.ai/). Hub at [hub.0g.ai/swap](https://hub.0g.ai/swap?network=mainnet) is a different venue; Beacon does not call it.
+- MetaMask may warn on `*.vercel.app` as a new domain. Beacon never asks for unlimited ERC-20 approvals. Deposit is payable native 0G to your Safe. Do not click through a warning you do not understand.
+- Wallet txs set EIP-1559 fees from live `eth_gasPrice` / `eth_maxPriorityFeePerGas`, never below the 2 gwei floor Aristotle has rejected.

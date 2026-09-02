@@ -12,6 +12,7 @@ import {
   type Hex,
 } from "viem";
 import { CONTRACTS, NETWORK } from "./chain";
+import { aristotleEip1559Fees } from "./aristotleFees";
 
 const aristotle = {
   id: NETWORK.chainId,
@@ -184,6 +185,20 @@ export function publicClient() {
   });
 }
 
+async function withAristotleFees<T extends Record<string, unknown>>(
+  tx: T,
+): Promise<T & { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
+  const pub = publicClient();
+  const fees = await aristotleEip1559Fees({
+    getGasPrice: () => pub.getGasPrice(),
+    requestMaxPriorityFee: async () => {
+      const raw = await pub.request({ method: "eth_maxPriorityFeePerGas" });
+      return BigInt(raw as string);
+    },
+  });
+  return { ...tx, ...fees };
+}
+
 export type SwapExecutionStep =
   | { step: "approve"; status: "pending" | "confirmed" | "skipped"; hash?: Hex }
   | { step: "swap"; status: "pending" | "confirmed" | "failed"; hash?: Hex; error?: string };
@@ -288,13 +303,15 @@ export async function approveJobOnChain(params: {
     functionName: "lockNative",
     args: [jobHash],
   });
-  const lockTxHash = await client.sendTransaction({
-    account,
-    to: CONTRACTS.escrow,
-    data: lockData,
-    value: amount,
-    chain: aristotle,
-  });
+  const lockTxHash = await client.sendTransaction(
+    await withAristotleFees({
+      account,
+      to: CONTRACTS.escrow,
+      data: lockData,
+      value: amount,
+      chain: aristotle,
+    }),
+  );
   const lockReceipt = await pub.waitForTransactionReceipt({ hash: lockTxHash });
   if (lockReceipt.status === "reverted") {
     throw new Error("Escrow lockNative reverted. Check 0G balance and try again.");
@@ -353,13 +370,15 @@ export async function executeAgentVaultPrep(params: {
           functionName: "deposit",
         });
 
-  const txHash = await wallet.sendTransaction({
-    account,
-    to: params.to,
-    data,
-    value,
-    chain: aristotle,
-  });
+  const txHash = await wallet.sendTransaction(
+    await withAristotleFees({
+      account,
+      to: params.to,
+      data,
+      value,
+      chain: aristotle,
+    }),
+  );
   const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status === "reverted") {
     throw new Error("Safe transaction reverted on 0G Aristotle.");
@@ -396,12 +415,14 @@ export async function sendPreparedVaultTx(params: {
   const pub = publicClient();
   const [account] = await wallet.getAddresses();
   if (!account) throw new Error("Connect a wallet first.");
-  const txHash = await wallet.sendTransaction({
-    account,
-    to: params.to,
-    data: params.data,
-    chain: aristotle,
-  });
+  const txHash = await wallet.sendTransaction(
+    await withAristotleFees({
+      account,
+      to: params.to,
+      data: params.data,
+      chain: aristotle,
+    }),
+  );
   const receipt = await pub.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status === "reverted") {
     throw new Error("Safe transaction reverted on 0G Aristotle.");

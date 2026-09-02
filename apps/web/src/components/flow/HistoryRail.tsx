@@ -163,7 +163,9 @@ export function HistoryRail({
                         <span className="truncate font-medium text-[var(--p-fg)]">{c.title}</span>
                       </span>
                       <span className="mt-0.5 block truncate font-mono text-[10px] text-[var(--p-faint)]">
-                        {new Date(c.updated_at).toLocaleString()} · {c.agent_id}
+                        {c.last_message
+                          ? c.last_message.slice(0, 72)
+                          : `${new Date(c.updated_at).toLocaleString()} · ${c.agent_id}`}
                       </span>
                     </>
                   )}

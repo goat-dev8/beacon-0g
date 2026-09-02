@@ -319,7 +319,7 @@ export function SecurityPage() {
                     ? `Jobs and Safe Zia swaps run through the executor until ${new Date(
                         agentSession.expiresAt * 1000,
                       ).toLocaleString()}. Your on-chain caps, pause, and expiry still gate every Safe spend.`
-                    : "One gas-free signature binds this browser session to your wallet. It does not move funds. After that, the agent executor submits approved actions without per-job wallet prompts."}
+                    : "One signature binds this browser session to your wallet. It does not move funds and it is not a transaction. After that, the agent executor submits approved Safe actions without a per-job prompt."}
                 </p>
               </div>
               <button

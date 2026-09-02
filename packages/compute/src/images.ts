@@ -60,7 +60,7 @@ async function sha256Hex(value: string): Promise<`0x${string}`> {
 }
 
 /**
- * Official Router async image path. No Pollinations/Comfy/OpenAI.
+ * Official Router async image path. No third-party image hosts.
  * POST /v1/async/images/generations then poll /v1/async/jobs/{id}.
  */
 export async function generateImage(
@@ -101,10 +101,15 @@ export async function generateImage(
   }
   if (!submit.ok) {
     const errObj = submitJson.error as Record<string, unknown> | undefined;
-    throw new AppError("COMPUTE_FAILED", {
+    const msg =
+      (errObj && typeof errObj.message === "string" && errObj.message) ||
+      `0G async image submit failed (${submit.status}).`;
+    const code = /insufficient balance/i.test(msg) ? "INSUFFICIENT_TREASURY" : "COMPUTE_FAILED";
+    throw new AppError(code, {
       message:
-        (errObj && typeof errObj.message === "string" && errObj.message) ||
-        `0G async image submit failed (${submit.status}).`,
+        code === "INSUFFICIENT_TREASURY"
+          ? "0G Compute treasury could not pay the provider. This is not your Safe balance. Escrow refunds."
+          : msg,
       details: { status: submit.status },
     });
   }

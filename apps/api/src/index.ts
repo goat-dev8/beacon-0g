@@ -3,7 +3,9 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
 import { Interface, JsonRpcProvider, Wallet, getAddress, keccak256, toUtf8Bytes } from "ethers";
+import { Pool } from "pg";
 import {
+  aristotleEip1559Fees,
   AppError,
   JobStatus,
   CHAIN_ID,
@@ -17,7 +19,7 @@ import {
   transition,
 } from "@beacon/shared";
 import { fetchCatalog, quoteJob, type JobQuote, type ModelTask } from "@beacon/quote";
-import { chatCompletions, createComputeBroker, type ComputeBroker } from "@beacon/compute";
+import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
 import { quoteExactIn, buildSwapTx } from "@beacon/swap";
@@ -27,6 +29,7 @@ import {
   verifySafeSessionToken,
 } from "./safeSession.js";
 import { serviceIdToTask, webJobRow, webQuoteDto, ZEROG_SERVICES } from "./jobDesk.js";
+import * as flowStore from "./flowStore.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -35,9 +38,36 @@ const provider = new JsonRpcProvider(env.ZEROG_RPC_URL, env.CHAIN_ID);
 const settler = env.SETTLER_PRIVATE_KEY ? new Wallet(env.SETTLER_PRIVATE_KEY, provider) : null;
 let computeBroker: ComputeBroker | null = null;
 
+const flowPool = env.DATABASE_URL
+  ? new Pool({
+      connectionString: env.DATABASE_URL,
+      ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
+      max: 5,
+    })
+  : null;
+
 async function requireBroker(): Promise<ComputeBroker> {
   if (!computeBroker) computeBroker = await createComputeBroker(env);
   return computeBroker;
+}
+
+async function aristotleFees() {
+  return aristotleEip1559Fees({
+    getGasPrice: async () => BigInt(await provider.send("eth_gasPrice", [])),
+    send: (method, params) => provider.send(method, params ?? []),
+  });
+}
+
+async function sendSettlerTx(tx: { to: string; data: string; value?: bigint }) {
+  if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
+  const fees = await aristotleFees();
+  return settler.sendTransaction({
+    to: tx.to,
+    data: tx.data,
+    value: tx.value ?? 0n,
+    maxFeePerGas: fees.maxFeePerGas,
+    maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+  });
 }
 
 const ESCROW_ABI = new Interface([
@@ -243,6 +273,12 @@ async function requireEscrow(): Promise<string> {
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
 await app.register(cors, { origin: true });
+if (flowPool) {
+  await flowStore.ensureFlowSchema(flowPool);
+  app.log.info("flow persistence: postgres");
+} else {
+  app.log.warn("flow persistence: DATABASE_URL missing — history will not survive restart");
+}
 
 app.get("/health", async () => ({
   ok: true,
@@ -409,7 +445,7 @@ app.post("/v1/jobs/:id/approve-safe", async (req) => {
     nonce,
     job.quote.lock0g,
   ]);
-  const tx = await settler.sendTransaction({ to: safe, data: execData });
+  const tx = await sendSettlerTx({ to: safe, data: execData });
   const mined = await tx.wait();
   if (mined?.status === 0) {
     throw new AppError("PAYMENT_FAILED", { message: "Safe lockNative reverted." });
@@ -594,6 +630,18 @@ async function runLockedJob(job: StoredJob): Promise<StoredJob> {
   try {
     job.status = JobStatus.GENERATING;
     emitEvent(job, "thinking", { text: `Running ${job.quote.modelId} on 0G Compute.` });
+    const broker = await requireBroker();
+    const minLedger =
+      job.quote.lock0g > parse0g("0.05") ? job.quote.lock0g : parse0g("0.05");
+    try {
+      await ensureLedgerBalance(minLedger, { env, broker });
+    } catch (err) {
+      throw new AppError("INSUFFICIENT_TREASURY", {
+        message:
+          "0G Compute treasury could not pay the provider. This is not your Safe balance. Escrow refunds.",
+        cause: err,
+      });
+    }
     if (job.task === "image") {
       const { generateImage } = await import("@beacon/compute");
       const img = await generateImage({
@@ -642,6 +690,14 @@ async function runLockedJob(job: StoredJob): Promise<StoredJob> {
   } catch (err) {
     job.status = JobStatus.FAILED;
     if (isAppError(err)) throw err;
+    const raw = err instanceof Error ? err.message : "";
+    if (/insufficient balance/i.test(raw)) {
+      throw new AppError("INSUFFICIENT_TREASURY", {
+        message:
+          "0G Compute treasury could not pay the provider. This is not your Safe balance. Escrow refunds.",
+        cause: err,
+      });
+    }
     throw new AppError("PIPELINE_FAILED", {
       message: "Generation failed. You were not charged.",
       cause: err,
@@ -655,7 +711,7 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
   }
   if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
   const escrow = await requireEscrow();
-  const tx = await settler.sendTransaction({
+  const tx = await sendSettlerTx({
     to: escrow,
     data: ESCROW_ABI.encodeFunctionData("release", [jobIdToBytes32(job.id)]),
   });
@@ -663,7 +719,7 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
   job.releaseTx = tx.hash;
 
   if (env.BEACON_RECEIPT_REGISTRY) {
-    const receiptTx = await settler.sendTransaction({
+    const receiptTx = await sendSettlerTx({
       to: env.BEACON_RECEIPT_REGISTRY,
       data: RECEIPT_ABI.encodeFunctionData("record", [
         jobIdToBytes32(job.id),
@@ -706,7 +762,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
         emitEvent(job, "denied", { reason: job.tee.reason });
         if (settler && job.lockTx) {
           const escrow = await requireEscrow();
-          const tx = await settler.sendTransaction({
+          const tx = await sendSettlerTx({
             to: escrow,
             data: ESCROW_ABI.encodeFunctionData("refund", [jobIdToBytes32(job.id)]),
           });
@@ -726,7 +782,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
     try {
       if (settler && job.lockTx && !job.releaseTx && !job.refundTx) {
         const escrow = await requireEscrow();
-        const tx = await settler.sendTransaction({
+        const tx = await sendSettlerTx({
           to: escrow,
           data: ESCROW_ABI.encodeFunctionData("refund", [jobIdToBytes32(job.id)]),
         });
@@ -755,7 +811,7 @@ app.post("/v1/jobs/:id/refund", async (req) => {
   if (!job) throw new AppError("JOB_NOT_FOUND");
   if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
   const escrow = await requireEscrow();
-  const tx = await settler.sendTransaction({
+  const tx = await sendSettlerTx({
     to: escrow,
     data: ESCROW_ABI.encodeFunctionData("refund", [jobIdToBytes32(job.id)]),
   });
@@ -1140,7 +1196,7 @@ app.post("/v1/vault/safe-swap/execute", async (req) => {
     if (call.target.toLowerCase() !== env.ZEROG_W0G.toLowerCase() && call.target.toLowerCase() !== env.ZIA_ROUTER.toLowerCase()) {
       throw new AppError("SWAP_REFUSED", { message: "Beacon refused this swap. Only W0G wrap/approve and Zia exactInputSingle are permitted." });
     }
-    const tx = await settler.sendTransaction({
+    const tx = await sendSettlerTx({
       to: safe,
       data: VAULT_ABI.encodeFunctionData("execute", [call.target, call.data, call.maxSpend, nonce, call.value]),
     });
@@ -1292,18 +1348,51 @@ app.post("/v1/flow/chat", async (req) => {
     const amount = m?.[1] ?? "0.2";
     try {
       const quote = await quoteExactIn(parse0g(amount));
+      const out = Number(quote.amountOut) / 1e6;
+      const estimatedOut = Number.isFinite(out)
+        ? out.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")
+        : quote.amountOut.toString();
       return {
-        reply: `Zia quote for ${amount} 0G → USDC.e. Beacon will only call the allowlisted Zia router.`,
+        reply: `Zia quote for ${amount} 0G → USDC. Beacon will wrap to W0G, approve the Zia router, then exactInputSingle. Recipient is your Beacon Safe.`,
         quote: {
           amountOut: quote.amountOut.toString(),
           minOut: quote.minOut.toString(),
           impactBps: quote.impactBps,
+          modelId: "zia-exactInputSingle",
         },
+        cards: [
+          {
+            type: "swap_prepare",
+            mode: "beacon_safe",
+            requiresMetaMask: false,
+            title: "Zia swap",
+            amountInDisplay: amount,
+            estimatedOut,
+            symbolIn: "0G",
+            symbolOut: "USDC",
+            chainId: env.CHAIN_ID,
+            slippageBps: 100,
+            warning: "Unlock Beacon Agent first. Thin books are refused before funds move.",
+            honesty:
+              "Native 0G → W0G.deposit → approve Zia SwapRouter → exactInputSingle. Output stays in the Safe.",
+            ogPrimitive: "Zia SwapRouter",
+            network: "0G Aristotle",
+          },
+        ],
       };
     } catch (err) {
       return {
-        reply: isAppError(err) ? err.userMessage : "Swap quote failed.",
+        reply: isAppError(err)
+          ? err.userMessage
+          : "Beacon refused this swap because verified liquidity is insufficient.",
         status: "REFUSED",
+        cards: [
+          {
+            type: "denied",
+            title: "Swap refused",
+            reason: isAppError(err) ? err.userMessage : "Verified liquidity is insufficient.",
+          },
+        ],
       };
     }
   }
@@ -1412,52 +1501,51 @@ app.get("/v1/agents/balances", async (req) => {
   };
 });
 
-type FlowConvRow = {
-  id: string;
-  title: string;
-  agent_id: string;
-  pinned: boolean;
-  updated_at: string;
-  created_at: string;
-  wallet: string;
-};
-const flowConversations = new Map<string, FlowConvRow>();
-
 app.get("/v1/flow/conversations", async (req) => {
   const wallet = String((req.query as { wallet?: string }).wallet ?? "");
-  const list = [...flowConversations.values()].filter((c) => !wallet || c.wallet.toLowerCase() === wallet.toLowerCase());
-  return { ok: true, conversations: list };
+  if (!wallet) return { ok: true, conversations: [] };
+  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  const conversations = await flowStore.listConversations(flowPool, getAddress(wallet));
+  return { ok: true, conversations };
 });
 
 app.post("/v1/flow/conversations", async (req) => {
   const body = z
     .object({ wallet: z.string(), title: z.string().optional(), agentId: z.string().optional() })
     .parse(req.body);
-  const now = new Date().toISOString();
-  const conversation: FlowConvRow = {
-    id: newId(),
-    title: body.title || "New chat",
-    agent_id: body.agentId || "general",
-    pinned: false,
-    updated_at: now,
-    created_at: now,
-    wallet: getAddress(body.wallet),
-  };
-  flowConversations.set(conversation.id, conversation);
+  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  const conversation = await flowStore.createConversation(
+    flowPool,
+    getAddress(body.wallet),
+    body.title || "New chat",
+    body.agentId || "general",
+  );
   return { ok: true, conversation };
 });
 
 app.get("/v1/flow/conversations/:id", async (req) => {
   const id = (req.params as { id: string }).id;
-  const conversation = flowConversations.get(id);
+  const wallet = String((req.query as { wallet?: string }).wallet ?? "");
+  if (!wallet || !flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  const conversation = await flowStore.getConversation(flowPool, id, getAddress(wallet));
   if (!conversation) throw new AppError("JOB_NOT_FOUND", { message: "Conversation not found." });
-  return { ok: true, conversation: { ...conversation, state_json: {} }, messages: [] };
+  const rows = await flowStore.listMessages(flowPool, id);
+  return {
+    ok: true,
+    conversation,
+    messages: rows.map((m) => ({
+      id: m.id,
+      role: m.role,
+      agentId: m.agent_id,
+      text: m.text,
+      cards: m.cards_json,
+      displayModel: m.display_model,
+    })),
+  };
 });
 
 app.patch("/v1/flow/conversations/:id", async (req) => {
   const id = (req.params as { id: string }).id;
-  const conversation = flowConversations.get(id);
-  if (!conversation) throw new AppError("JOB_NOT_FOUND", { message: "Conversation not found." });
   const body = z
     .object({
       wallet: z.string(),
@@ -1466,17 +1554,44 @@ app.patch("/v1/flow/conversations/:id", async (req) => {
       archive: z.boolean().optional(),
     })
     .parse(req.body);
-  if (body.archive) flowConversations.delete(id);
-  else {
-    if (body.title) conversation.title = body.title;
-    if (body.pinned !== undefined) conversation.pinned = body.pinned;
-    conversation.updated_at = new Date().toISOString();
-  }
+  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  const wallet = getAddress(body.wallet);
+  if (body.archive) await flowStore.archiveConversation(flowPool, id, wallet);
+  else if (body.title) await flowStore.renameConversation(flowPool, id, wallet, body.title);
+  else if (body.pinned !== undefined) await flowStore.pinConversation(flowPool, id, wallet, body.pinned);
   return { ok: true };
 });
 
-app.get("/v1/flow/activity", async () => ({ ok: true, activity: [] }));
-app.post("/v1/flow/activity", async () => ({ ok: true }));
+app.get("/v1/flow/activity", async (req) => {
+  const wallet = String((req.query as { wallet?: string }).wallet ?? "");
+  if (!wallet || !flowPool) return { ok: true, activity: [] };
+  const activity = await flowStore.listActivity(flowPool, getAddress(wallet));
+  return { ok: true, activity };
+});
+
+app.post("/v1/flow/activity", async (req) => {
+  const body = z
+    .object({
+      wallet: z.string(),
+      kind: z.string(),
+      title: z.string(),
+      explorerUrl: z.string().optional(),
+      refId: z.string().optional(),
+      meta: z.record(z.string(), z.unknown()).optional(),
+    })
+    .parse(req.body);
+  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  await flowStore.recordActivity(
+    flowPool,
+    getAddress(body.wallet),
+    body.kind,
+    body.title,
+    body.meta ?? {},
+    body.explorerUrl,
+    body.refId,
+  );
+  return { ok: true };
+});
 
 app.post("/v1/agents/chat", async (req) => {
   const body = z
@@ -1508,14 +1623,41 @@ app.post("/v1/agents/chat", async (req) => {
     cards?: Array<Record<string, unknown> & { type: string }>;
     quote?: { modelId?: string };
   };
+  const agentId = body.agentId ?? "general";
+  const displayModel = data.quote?.modelId ?? "0G Router";
+  let conversationId = body.conversationId ?? null;
+  if (body.wallet && flowPool) {
+    const wallet = getAddress(body.wallet);
+    if (!conversationId) {
+      const title = body.message.slice(0, 72) || "New chat";
+      const created = await flowStore.createConversation(flowPool, wallet, title, agentId);
+      conversationId = String(created.id);
+    }
+    const persistedId = conversationId;
+    await flowStore.appendMessage(flowPool, persistedId, {
+      role: "user",
+      agentId,
+      text: body.message,
+    });
+    await flowStore.appendMessage(flowPool, persistedId, {
+      role: "assistant",
+      agentId,
+      text: data.reply ?? "",
+      cards: data.cards,
+      displayModel,
+    });
+    if (body.state) {
+      await flowStore.updateConversationState(flowPool, persistedId, body.state, agentId);
+    }
+  }
   return {
     ok: true,
-    conversationId: body.conversationId ?? null,
-    agentId: body.agentId ?? "general",
+    conversationId,
+    agentId,
     text: data.reply ?? "",
     cards: data.cards ?? [],
     model: data.quote?.modelId ?? "0g-router",
-    displayModel: data.quote?.modelId ?? "0G Router",
+    displayModel,
     paid: false,
     state: body.state ?? { intent: "chat", phase: "quoted" },
   };

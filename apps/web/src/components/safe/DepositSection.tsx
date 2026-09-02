@@ -49,9 +49,9 @@ export function DepositSection({
             Fund the Safe
           </h2>
           <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-[var(--p-muted)]">
-            Sign once in MetaMask to approve Aristotle 0G, then Beacon Safe pulls it with
-            deposit(). Get testnet 0G from the official faucet (0G + 0G + USDC.e) — this
-            is real 0G on Aristotle, not mainnet USD₮0.
+            Sign in MetaMask to send native 0G into your Beacon Safe. This is a payable
+            deposit() — not an ERC-20 approve. Get 0G at get.0g.ai. This is Aristotle
+            chain 16661, native 0G.
           </p>
         </div>
       </div>

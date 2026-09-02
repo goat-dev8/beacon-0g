@@ -54,6 +54,7 @@ export type FlowConv = {
   pinned: boolean;
   updated_at: string;
   created_at: string;
+  last_message?: string | null;
 };
 
 export const WELCOME: ChatMsg = {

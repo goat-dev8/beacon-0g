@@ -44,6 +44,10 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
       - key: APP_URL
         sync: false
       - key: API_URL

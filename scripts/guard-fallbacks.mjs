@@ -39,6 +39,9 @@ const GLOBAL_NEEDLES = [
   "InMemoryStorage",
   ["SIMULATED", "TEE"].join("_"),
   ["api", "openai", "com"].join("."),
+  "Pollinations",
+  "ComfyUI",
+  "MockUSDC",
 ];
 
 const SWAP_NEEDLE = ["0x9bdcA", "579"].join("");

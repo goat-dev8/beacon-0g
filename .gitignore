@@ -20,4 +20,6 @@ packages/contracts/out/
 packages/contracts/cache/
 packages/contracts/lib/
 packages/contracts/broadcast/
-apps/web/dist/
+HISTORY.md
+PROOF.md
+

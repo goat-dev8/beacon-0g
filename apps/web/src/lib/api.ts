@@ -300,6 +300,7 @@ export const api = {
         pinned: boolean;
         updated_at: string;
         created_at: string;
+        last_message?: string | null;
       }>;
     }>(`/v1/flow/conversations?wallet=${encodeURIComponent(wallet)}`),
   createFlowConversation: (wallet: string, title?: string, agentId?: string) =>

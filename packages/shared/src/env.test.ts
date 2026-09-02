@@ -54,6 +54,7 @@ describe("units", () => {
   it("parses 0G decimals to wei", () => {
     expect(parse0g("1")).toBe(10n ** 18n);
     expect(parse0g("0.001")).toBe(10n ** 15n);
+    expect(parse0g("0.2 0G")).toBe(parse0g("0.2"));
     expect(format0g(parse0g("0.013"))).toContain("0.013");
   });
 });

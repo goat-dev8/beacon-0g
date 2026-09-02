@@ -1,11 +1,14 @@
 import { NEURONS_PER_0G } from "./constants.js";
 
-/** Parse a decimal 0G amount (e.g. "0.001") to wei (1e18). */
+/** Parse a decimal 0G amount (e.g. "0.001", "0.2 0G") to wei (1e18). */
 export function parse0g(amount: string | number): bigint {
   const raw = typeof amount === "number" ? amount.toString() : amount.trim();
   if (!raw) return 0n;
   const neg = raw.startsWith("-");
-  const unsigned = neg ? raw.slice(1) : raw;
+  const unsigned = (neg ? raw.slice(1) : raw)
+    .replace(/^\$/, "")
+    .replace(/\s*0G\s*$/i, "")
+    .trim();
   const [wholePart, fracPart = ""] = unsigned.split(".");
   const whole = BigInt(wholePart || "0");
   const fracPadded = (fracPart + "0".repeat(18)).slice(0, 18);
