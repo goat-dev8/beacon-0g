@@ -603,6 +603,26 @@ export const api = {
       headers: { Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({}),
     }),
+  issueMcpAuthCode: (
+    body: {
+      wallet: string;
+      grantId: string;
+      codeChallenge: string;
+      codeChallengeMethod?: "S256";
+      redirectUri: string;
+      clientId: string;
+      state?: string;
+    },
+    sessionToken: string,
+  ) =>
+    request<{ ok: boolean; code: string; state: string | null; expiresIn: number }>(
+      "/v1/mcp/oauth/code",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` },
+        body: JSON.stringify(body),
+      },
+    ),
   getVaultStatus: (opts?: { address?: string; wallet?: string } | string) => {
     // Back-compat: getVaultStatus(addressString)
     const normalized =

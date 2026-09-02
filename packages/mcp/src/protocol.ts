@@ -27,16 +27,33 @@ function err(id: JsonRpcId, code: number, message: string, data?: unknown): Json
   return { jsonrpc: "2.0", id, error: { code, message, data } };
 }
 
-export function mcpInitializeResult(grant: McpGrant) {
+const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2024-11-05", "2025-03-26", "2025-06-18"]);
+
+export function negotiateProtocolVersion(requested: unknown): string {
+  if (typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.has(requested)) {
+    return requested;
+  }
+  return "2025-03-26";
+}
+
+export function isMcpNotification(body: JsonRpcRequest): boolean {
+  return (
+    typeof body.method === "string" &&
+    body.method.startsWith("notifications/") &&
+    (body.id === undefined || body.id === null)
+  );
+}
+
+export function mcpInitializeResult(grant: McpGrant, requestedProtocol?: unknown) {
   return {
-    protocolVersion: "2025-03-26",
+    protocolVersion: negotiateProtocolVersion(requestedProtocol),
     capabilities: {
       tools: { listChanged: false },
       resources: { listChanged: false },
     },
     serverInfo: {
       name: "beacon-mcp",
-      version: "0.1.0",
+      version: "0.3.0",
     },
     instructions: [
       BEACON_MCP_INSTRUCTIONS,
@@ -132,7 +149,11 @@ export function handleMcpJsonRpc(
   const method = body.method;
 
   if (method === "initialize") {
-    return ok(id, mcpInitializeResult(grant));
+    const requested =
+      typeof body.params === "object" && body.params && "protocolVersion" in body.params
+        ? (body.params as { protocolVersion?: unknown }).protocolVersion
+        : undefined;
+    return ok(id, mcpInitializeResult(grant, requested));
   }
   if (method === "notifications/initialized" || method === "initialized") {
     return ok(id, {});

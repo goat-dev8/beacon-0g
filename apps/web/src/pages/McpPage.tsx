@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
@@ -111,6 +112,7 @@ function Faq({ q, a }: { q: string; a: string }) {
 
 export function McpPage() {
   const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
   const { wallet, connect, connecting } = useProductWallet();
   const [step, setStep] = useState(0);
   const [clientKind, setClientKind] = useState<"claude" | "cursor" | "generic">("claude");
@@ -124,6 +126,22 @@ export function McpPage() {
   const [testResult, setTestResult] = useState<string | null>(null);
   /** Cached session only — never auto-prompt MetaMask on page load. */
   const [agentSession, setAgentSession] = useState<SafeAgentSession | null>(null);
+
+  const oauthRequest = useMemo(() => {
+    const responseType = searchParams.get("response_type");
+    const clientId = searchParams.get("client_id");
+    const redirectUri = searchParams.get("redirect_uri");
+    const codeChallenge = searchParams.get("code_challenge");
+    const method = searchParams.get("code_challenge_method") ?? "S256";
+    const state = searchParams.get("state") ?? "";
+    if (responseType !== "code" || !clientId || !redirectUri || !codeChallenge) return null;
+    if (method !== "S256") return null;
+    return { clientId, redirectUri, codeChallenge, state };
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (oauthRequest) setClientKind("cursor");
+  }, [oauthRequest]);
 
   useEffect(() => {
     setAgentSession(readSafeAgentSession(wallet));
@@ -254,6 +272,51 @@ export function McpPage() {
     },
   });
 
+  const authorizeOauth = useMutation({
+    mutationFn: async () => {
+      if (!wallet) throw new Error("Connect your wallet first.");
+      if (!oauthRequest) throw new Error("No OAuth request on this page.");
+      const session = agentSession ?? (await ensureSafeAgentSession(wallet));
+      setAgentSession(session);
+      let grantId = grantsQuery.data?.grants.find((g) => g.active)?.id;
+      if (!grantId) {
+        const created = await api.createMcpGrant(
+          {
+            wallet,
+            clientKind: "cursor",
+            scopes,
+            maxSpendPerTxUsdt0: Number(maxSpend),
+            dailyLimitUsdt0: Number(dailyLimit),
+            ttlHours: Math.max(1, Math.round(Number(ttlDays) * 24)),
+          },
+          session.token,
+        );
+        grantId = created.grant.id;
+        void qc.invalidateQueries({ queryKey: ["mcp-grants", wallet] });
+      }
+      const issuedCode = await api.issueMcpAuthCode(
+        {
+          wallet,
+          grantId,
+          codeChallenge: oauthRequest.codeChallenge,
+          codeChallengeMethod: "S256",
+          redirectUri: oauthRequest.redirectUri,
+          clientId: oauthRequest.clientId,
+          state: oauthRequest.state || undefined,
+        },
+        session.token,
+      );
+      const sep = oauthRequest.redirectUri.includes("?") ? "&" : "?";
+      const next = `${oauthRequest.redirectUri}${sep}code=${encodeURIComponent(issuedCode.code)}${
+        oauthRequest.state ? `&state=${encodeURIComponent(oauthRequest.state)}` : ""
+      }`;
+      window.location.assign(next);
+    },
+    onError: (err) => {
+      setNote(err instanceof Error ? err.message : String(err));
+    },
+  });
+
   function toggleScope(id: McpScope) {
     setScopes((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   }
@@ -307,6 +370,45 @@ export function McpPage() {
       </header>
 
       <main className="relative mx-auto max-w-3xl space-y-10 px-4 pb-24 pt-4 sm:px-5">
+        {oauthRequest && (
+          <section className="rounded-[var(--p-radius)] border border-[var(--p-accent)]/45 bg-[var(--p-accent-soft)] p-5">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--p-accent-text)]">
+              External agent
+            </p>
+            <h2 className="mt-1 font-display text-xl font-semibold">Approve Beacon MCP access</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--p-muted)]">
+              An MCP client is requesting a scoped session. Beacon will never share your private key.
+              Approve only if you started this connect from your own editor.
+            </p>
+            <p className="mt-2 break-all font-mono text-[11px] text-[var(--p-faint)]">
+              client {oauthRequest.clientId}
+            </p>
+            {!wallet ? (
+              <button
+                type="button"
+                onClick={() => void connect()}
+                disabled={connecting}
+                className="mt-4 rounded-full bg-[var(--p-accent)] px-5 py-2.5 text-sm font-medium text-[var(--p-on-accent)] disabled:opacity-50"
+              >
+                {connecting ? "Connecting…" : "Connect wallet to approve"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={authorizeOauth.isPending}
+                onClick={() => authorizeOauth.mutate()}
+                className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--p-accent)] px-5 py-2.5 text-sm font-medium text-[var(--p-on-accent)] disabled:opacity-50"
+              >
+                {authorizeOauth.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Shield className="size-4" />
+                )}
+                Approve and return
+              </button>
+            )}
+          </section>
+        )}
         <section className="grid gap-6 sm:grid-cols-2">
           <div>
             <h2 className="font-display text-lg font-semibold">What is Beacon MCP?</h2>
@@ -561,7 +663,7 @@ export function McpPage() {
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-[var(--p-muted)]">
                   {clientKind === "cursor"
-                    ? "Paste into Cursor Settings → MCP (or ~/.cursor/mcp.json), then reload MCP."
+                    ? "Paste into Cursor Settings → MCP, or click Authenticate when prompted. Approve on this page — Beacon uses PKCE and never sends a private key."
                     : "Use this URL + Authorization Bearer header in any MCP-compatible client."}
                 </p>
               </div>

@@ -25,6 +25,7 @@ import { chatCompletions, createComputeBroker, ensureLedgerBalance, type Compute
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
 import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, findPoolFee, getPoolAtFee, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
+import { preflightVaultCalls } from "@beacon/execution";
 import {
   createSafeSessionChallenge,
   verifyChallengeAndIssueSession,
@@ -214,6 +215,96 @@ async function lastJobForWallet(wallet?: string): Promise<StoredJob | undefined>
   if (!jobRedis) return undefined;
   const id = await getLastJobId(jobRedis, addr);
   return id ? getJob(id) : undefined;
+}
+
+async function listJobsForWallet(wallet: string): Promise<StoredJob[]> {
+  let addr: string;
+  try {
+    addr = getAddress(wallet);
+  } catch {
+    return [];
+  }
+  const fromMem = [...jobs.values()]
+    .filter((j) => {
+      try {
+        return Boolean(j.wallet) && getAddress(j.wallet) === addr;
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (!jobRedis) return fromMem.slice(0, 30);
+  const ids = await listWalletJobIds(jobRedis, addr);
+  const extra: StoredJob[] = [];
+  for (const id of ids) {
+    if (fromMem.some((j) => j.id === id)) continue;
+    const row = await getJob(id);
+    if (row) extra.push(row);
+  }
+  return [...fromMem, ...extra]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 30);
+}
+
+async function preflightSafeSwap(input: {
+  wallet: string;
+  amount0g: number;
+  tokenIn?: string;
+  tokenOut?: string;
+}) {
+  const owner = getAddress(input.wallet);
+  const safe = await resolveSafe(owner);
+  if (!safe) {
+    return { verdict: "DENY" as const, reason: "No Beacon Safe for this wallet." };
+  }
+  const [paused] = await vaultView(safe, "paused");
+  const [maxSpend] = await vaultView(safe, "maxSpendPerTx");
+  const tokenIn = input.tokenIn ?? "0G";
+  const tokenOut = input.tokenOut ?? "USDC";
+  const inTok = resolveZiaToken(tokenIn);
+  const amountIn = parseTokenAmount(String(input.amount0g), inTok?.docsDecimals ?? 18);
+  const quote = await quoteZiaPair({
+    amountIn,
+    tokenIn,
+    tokenOut,
+    slippageBps: 100,
+  });
+  if (!quote.executableFromSafe) {
+    return {
+      verdict: "DENY" as const,
+      reason: quote.executeBlock || "Beacon Safe cannot execute this direction.",
+      quote: {
+        tokenIn: quote.tokenInSymbol,
+        tokenOut: quote.tokenOutSymbol,
+        amountOut: quote.amountOut.toString(),
+        impactBps: quote.impactBps,
+      },
+    };
+  }
+  const built = buildSwapTx(quote, safe, { nonce: 0n, wrapNative: quote.wrapNative, deadlineSeconds: 1200 });
+  const decision = preflightVaultCalls({
+    calls: built.calls,
+    safe,
+    paused: Boolean(paused),
+    maxSpendPolicyWei: maxSpend as bigint,
+    allowedTargets: [env.ZEROG_W0G, env.ZIA_ROUTER],
+    w0g: env.ZEROG_W0G,
+    router: env.ZIA_ROUTER,
+    quotedMinOut: quote.minOut,
+    deadlineSeconds: Math.floor(Date.now() / 1000) + 1200,
+  });
+  return {
+    ...decision,
+    quote: {
+      tokenIn: quote.tokenInSymbol,
+      tokenOut: quote.tokenOutSymbol,
+      amountOut: quote.amountOut.toString(),
+      minOut: quote.minOut.toString(),
+      impactBps: quote.impactBps,
+      fee: quote.fee,
+      executableFromSafe: quote.executableFromSafe,
+    },
+  };
 }
 
 async function lastProvenJobForWallet(wallet?: string): Promise<StoredJob | undefined> {
@@ -553,7 +644,18 @@ async function requireEscrow(): Promise<string> {
 }
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
-await app.register(cors, { origin: true });
+await app.register(cors, {
+  origin: true,
+  methods: ["GET", "POST", "PUT", "OPTIONS"],
+  allowedHeaders: [
+    "Authorization",
+    "Content-Type",
+    "MCP-Protocol-Version",
+    "Last-Event-ID",
+    "Mcp-Session-Id",
+  ],
+  exposedHeaders: ["WWW-Authenticate", "MCP-Protocol-Version", "Mcp-Session-Id"],
+});
 
 const history = await openFlowHistory(env);
 const historyReady = Boolean(history);
@@ -1605,7 +1707,23 @@ async function runSafeZiaSwap(input: {
   if (quote.router.toLowerCase() !== env.ZIA_ROUTER.toLowerCase()) {
     throw new AppError("SWAP_REFUSED", { message: "Quote router is not the allowlisted Zia router." });
   }
-  const built = buildSwapTx(quote, safe, { nonce: 0n, wrapNative: quote.wrapNative });
+  const built = buildSwapTx(quote, safe, { nonce: 0n, wrapNative: quote.wrapNative, deadlineSeconds: 1200 });
+  const [paused] = await vaultView(safe, "paused");
+  const [maxSpend] = await vaultView(safe, "maxSpendPerTx");
+  const decision = preflightVaultCalls({
+    calls: built.calls,
+    safe,
+    paused: Boolean(paused),
+    maxSpendPolicyWei: maxSpend as bigint,
+    allowedTargets: [env.ZEROG_W0G, env.ZIA_ROUTER],
+    w0g: env.ZEROG_W0G,
+    router: env.ZIA_ROUTER,
+    quotedMinOut: quote.minOut,
+    deadlineSeconds: Math.floor(Date.now() / 1000) + 1200,
+  });
+  if (decision.verdict === "DENY") {
+    throw new AppError("TEE_DENIED", { message: `Preflight DENY: ${decision.reason}` });
+  }
   const hashes: string[] = [];
   let nonce = BigInt(Date.now());
   for (const call of built.calls) {
@@ -1634,6 +1752,7 @@ async function runSafeZiaSwap(input: {
     explorerSpend: explorerTx(spendHash),
     explorerFulfill: explorerTx(fulfillHash),
     chainId: env.CHAIN_ID,
+    intentHash: decision.intentHash,
     honesty: "Executor submitted wrap + approve + Zia exactInputSingle from Beacon Safe. Output token stays in the Safe.",
   };
 }
@@ -1751,6 +1870,26 @@ registerMcpRoutes(app, {
     return quoteLifiBridge(intent, getAddress(wallet));
   },
   executeSafeSwap: (input) => runSafeZiaSwap(input),
+  listJobs: (wallet) => listJobsForWallet(wallet),
+  listHistory: async (wallet) => {
+    if (!history) return [];
+    return history.listActivity(getAddress(wallet));
+  },
+  lastDenial: async (wallet) => {
+    const last = await lastJobForWallet(wallet);
+    if (!last?.denial) return null;
+    return {
+      reason: last.denial,
+      jobId: last.id,
+      fundsMoved: last.refundTx ? "refunded" : last.lockTx ? "escrow locked" : "0 0G",
+    };
+  },
+  listSwapAssets: () => listSwapAssets({ env }),
+  preflightSwap: (input) => preflightSafeSwap(input),
+  recordActivity: async (wallet, kind, title, meta, explorerUrl, refId) => {
+    if (!history) return;
+    await history.recordActivity(getAddress(wallet), kind, title, meta, explorerUrl, refId);
+  },
 });
 
 app.get("/.well-known/agent-card.json", async () => agentRegistrationFile());

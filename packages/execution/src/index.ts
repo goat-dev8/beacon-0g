@@ -24,6 +24,16 @@ export {
 
 export { hashImmutableInput } from "./hash.js";
 
+export {
+  preflightVaultCalls,
+  SELECTOR_WETH_DEPOSIT,
+  SELECTOR_ERC20_APPROVE,
+  SELECTOR_EXACT_INPUT_SINGLE,
+  type PreflightCall,
+  type PreflightCheck,
+  type PreflightDecision,
+} from "./preflight.js";
+
 export { WorkflowRegistry } from "./registry.js";
 
 export {

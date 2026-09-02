@@ -4,6 +4,7 @@ export * from "./grants.js";
 export * from "./policyGate.js";
 export * from "./tools.js";
 export * from "./protocol.js";
+export * from "./oauth.js";
 
 export function buildSetupPrompt(opts: {
   apiBase: string;
@@ -25,13 +26,14 @@ export function buildSetupPrompt(opts: {
   const web = opts.webBase.replace(/\/$/, "");
   const accessExp = new Date(opts.accessTokenExpiresAt * 1000).toISOString();
   const clientSetup =
-    opts.clientKind === "cursor"
+            opts.clientKind === "cursor"
       ? [
           "Cursor setup:",
           "1) Open Cursor Settings → MCP (or edit ~/.cursor/mcp.json).",
-          "2) Paste the mcpServers.beacon block from the Cursor config below.",
-          "3) Restart MCP / reload Cursor windows if tools do not appear.",
-          "4) In chat, ask the agent to list Beacon MCP tools and call get_safe + get_policy.",
+          "2) Paste the mcpServers.beacon-0g block from the Cursor config below, or add the URL and click Authenticate.",
+          "3) If Cursor asks you to Authenticate, approve on the Beacon MCP page. That uses PKCE — Beacon never sends a private key.",
+          "4) Restart MCP / reload Cursor windows if tools do not appear.",
+          "5) In chat, ask the agent to list Beacon MCP tools and call get_safe + get_policy.",
         ]
       : opts.clientKind === "claude"
         ? [
