@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
+import { destinationComplete, parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
 
 describe("parseBridgeIntent", () => {
   it("parses Base USDC → 0G", () => {
@@ -113,5 +113,13 @@ describe("statusLifiBridge", () => {
       }) as Response) as typeof fetch;
     const st = await statusLifiBridge("0xsrc", 8453, fetchImpl);
     expect(st.complete).toBe(false);
+  });
+});
+
+describe("destinationComplete", () => {
+  it("requires DONE complete plus a destination hash", () => {
+    expect(destinationComplete({ complete: true, receivingTx: "0xdst" })).toBe(true);
+    expect(destinationComplete({ complete: true, receivingTx: null })).toBe(false);
+    expect(destinationComplete({ complete: false, receivingTx: "0xdst" })).toBe(false);
   });
 });

@@ -205,3 +205,8 @@ export async function statusLifiBridge(
       : `LI.FI status is ${status}. Beacon will not mark the bridge complete until destination is detected.`,
   };
 }
+
+/** Complete only when status is DONE and a destination tx exists. Never infer from source. */
+export function destinationComplete(st: { complete?: boolean; receivingTx?: string | null }): boolean {
+  return st.complete === true && Boolean(st.receivingTx);
+}

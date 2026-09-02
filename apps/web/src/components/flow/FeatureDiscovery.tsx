@@ -40,6 +40,13 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
     accent: true,
   },
   {
+    id: "thin",
+    title: "Thin book",
+    blurb: "WBTC is quoted live. Thin verified liquidity is refused before funds move.",
+    prompt: "Swap 0.01 0G to WBTC",
+    icon: ArrowLeftRight,
+  },
+  {
     id: "reverse",
     title: "Reverse quote",
     blurb: "USDC.e → 0G is a live Zia quote. Beacon Safe cannot execute it (wealth would credit W0G).",

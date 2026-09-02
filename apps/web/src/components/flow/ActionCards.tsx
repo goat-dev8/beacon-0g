@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink, CheckCircle2, Clock } from "lucide-react";
 import { api } from "@/lib/api";
@@ -104,6 +104,7 @@ export function ActionCard({
   const [jobResult, setJobResult] = useState<string | null>(null);
   const [jobImage, setJobImage] = useState<string | null>(null);
   const [jobDenial, setJobDenial] = useState<string | null>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (card.type === "swap_prepare" || card.type === "media_result" || card.type === "bridge_quote" || card.type === "job_offer") {
@@ -346,21 +347,28 @@ export function ActionCard({
                       explorerUrl: explorerTx(result.sourceHash, fromChainId),
                       meta: { fromChainId, honesty: "Source confirmed. Destination is not complete yet." },
                     });
+                    let destOk = false;
                     for (let i = 0; i < 40; i += 1) {
                       const st = await api.lifiBridgeStatus(result.sourceHash, fromChainId);
-                      setSendStatus(st.complete ? "confirmed" : "pending");
+                      const ready = Boolean(st.complete && st.receivingTx);
+                      setSendStatus(ready ? "confirmed" : "pending");
                       if (st.receivingTx) setSendHash(st.receivingTx);
-                      if (st.complete && st.receivingTx) {
+                      if (ready) {
+                        destOk = true;
                         onTxConfirmed?.({
                           kind: "bridge",
                           title: `${String(card.title ?? "Bridge")} destination`,
-                          hash: st.receivingTx,
-                          explorerUrl: explorerTx(st.receivingTx, 16661),
+                          hash: st.receivingTx!,
+                          explorerUrl: explorerTx(st.receivingTx!, 16661),
                           meta: { complete: true, source: result.sourceHash },
                         });
                         break;
                       }
                       await new Promise((r) => setTimeout(r, 8000));
+                    }
+                    if (!destOk) {
+                      const fail = classifyExecutionFailure(new Error("LI.FI status is PENDING"));
+                      setError(fail.message);
                     }
                   } catch (e) {
                     const fail = classifyExecutionFailure(e);
@@ -1326,12 +1334,12 @@ export function ActionCard({
           );
         })()}
         {jobDenial && <p className="mt-2 text-sm text-[var(--p-danger)]">{jobDenial}</p>}
-        {jobImage && (
-          <img src={`data:image/png;base64,${jobImage}`} alt="Job result" className="mt-3 max-h-64 rounded-xl" />
-        )}
-        {jobResult && (
-          <div className="mt-3 max-h-64 overflow-y-auto border-t border-[var(--p-border)] pt-3">
-            <SafeMarkdown text={jobResult} />
+        {(jobResult || jobImage) && (
+          <div ref={resultRef} className="mt-3 max-h-64 overflow-y-auto border-t border-[var(--p-border)] pt-3">
+            {jobImage && (
+              <img src={`data:image/png;base64,${jobImage}`} alt="Job result" className="mb-3 max-h-64 rounded-xl" />
+            )}
+            {jobResult ? <SafeMarkdown text={jobResult} /> : null}
           </div>
         )}
         <div className="mt-4 flex flex-wrap gap-2">
@@ -1358,6 +1366,7 @@ export function ActionCard({
                     });
                     setJobPhase("running");
                     setJobStatus("AUTHORIZED");
+                    let settled = false;
                     for (let i = 0; i < 80; i += 1) {
                       const row = await api.getJob(jobId);
                       const status = String(row.status ?? row.job?.status ?? "");
@@ -1366,6 +1375,7 @@ export function ActionCard({
                       if (row.imageB64) setJobImage(row.imageB64);
                       if (row.denial) setJobDenial(row.denial);
                       if (["PASSED", "CLOSED", "SETTLING"].includes(status)) {
+                        settled = true;
                         setJobPhase("done");
                         onBalancesRefresh();
                         onTxConfirmed?.({
@@ -1380,10 +1390,16 @@ export function ActionCard({
                         break;
                       }
                       if (["FAILED", "REFUSING", "EXPIRED", "CANCELED"].includes(status)) {
+                        settled = true;
                         setJobPhase("failed");
                         break;
                       }
                       await new Promise((r) => setTimeout(r, 4000));
+                    }
+                    if (!settled) {
+                      setError(
+                        "Job is still running on Aristotle. Open proof for lock/release. Beacon will not invent PASSED.",
+                      );
                     }
                   } catch (e) {
                     const fail = classifyExecutionFailure(e);
@@ -1400,6 +1416,15 @@ export function ActionCard({
           )}
           {done && (
             <>
+              {(jobResult || jobImage) && (
+                <button
+                  type="button"
+                  className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                  onClick={() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+                >
+                  View result
+                </button>
+              )}
               {jobResult && (
                 <button
                   type="button"
