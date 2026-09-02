@@ -37,8 +37,8 @@ type VerifyPayload = {
 
 const BG = "#070908";
 const FG = "#f4f6f4";
-const MUTED = "#c5ccc7";
-const FAINT = "#b4beb8";
+const MUTED = "#d7ddd8";
+const FAINT = "#c5ccc7";
 const LINE = "#2a312c";
 const CARD = "#101412";
 const ACCENT = "#39e08a";
@@ -251,10 +251,17 @@ export function VerifyPage() {
             </section>
 
             <section className="flex flex-wrap gap-2">
+              <Link
+                className="rounded-full px-4 py-2 text-sm font-medium"
+                style={{ background: ACCENT, color: "#06130c" }}
+                to={jobId ? `/flow/desk?job=${jobId}` : "/flow/desk"}
+              >
+                Open job
+              </Link>
               {job?.lockTx && (
                 <a
-                  className="rounded-full px-4 py-2 text-sm font-medium"
-                  style={{ background: ACCENT, color: "#06130c" }}
+                  className="rounded-full border px-4 py-2 text-sm"
+                  style={{ borderColor: LINE, color: FG }}
                   href={explorerTx(job.lockTx)}
                   target="_blank"
                   rel="noreferrer"
