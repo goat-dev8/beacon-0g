@@ -36,6 +36,7 @@ import { BRIDGE_CATALOG, bridgeCatalogCard } from "./bridgeCatalog.js";
 import { historyMeta } from "./historyMeta.js";
 import { encodeGiveFeedback, probeErc8004 } from "./erc8004.js";
 import { registerMcpRoutes } from "./mcpRoutes.js";
+import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -66,6 +67,10 @@ async function sendSettlerTx(tx: { to: string; data: string; value?: bigint }) {
     maxFeePerGas: fees.maxFeePerGas,
     maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
   });
+}
+
+async function waitSettlerTx(tx: { hash: string; wait: (confirms?: number) => Promise<ReceiptLike | null> }) {
+  return waitForMinedReceipt(tx, provider);
 }
 
 const ESCROW_ABI = new Interface([
@@ -565,8 +570,8 @@ app.post("/v1/jobs/:id/approve-safe", async (req) => {
     job.quote.lock0g,
   ]);
   const tx = await sendSettlerTx({ to: safe, data: execData });
-  const mined = await tx.wait();
-  if (mined?.status === 0) {
+  const mined = await waitSettlerTx(tx);
+  if (Number(mined.status ?? 1) === 0) {
     throw new AppError("PAYMENT_FAILED", { message: "Safe lockNative reverted." });
   }
   job.wallet = owner;
@@ -879,8 +884,9 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
     to: escrow,
     data: ESCROW_ABI.encodeFunctionData("release", [jobIdToBytes32(job.id)]),
   });
-  await tx.wait();
   job.releaseTx = tx.hash;
+  await persistJob(job);
+  await waitSettlerTx(tx);
 
   if (env.BEACON_RECEIPT_REGISTRY) {
     const receiptTx = await sendSettlerTx({
@@ -894,8 +900,9 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
         true,
       ]),
     });
-    await receiptTx.wait();
     job.receiptTx = receiptTx.hash;
+    await persistJob(job);
+    await waitSettlerTx(receiptTx);
   }
   job.status = JobStatus.CLOSED;
   emitEvent(job, "released", { tx: job.releaseTx, receiptTx: job.receiptTx });
@@ -932,9 +939,11 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
             to: escrow,
             data: ESCROW_ABI.encodeFunctionData("refund", [jobIdToBytes32(job.id)]),
           });
-          await tx.wait();
           job.refundTx = tx.hash;
+          await persistJob(job);
+          await waitSettlerTx(tx);
           job.status = JobStatus.CLOSED;
+          emitEvent(job, "refunded", { tx: job.refundTx });
         }
         await persistJob(job);
         return;
@@ -954,8 +963,9 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
           to: escrow,
           data: ESCROW_ABI.encodeFunctionData("refund", [jobIdToBytes32(job.id)]),
         });
-        await tx.wait();
         job.refundTx = tx.hash;
+        await persistJob(job);
+        await waitSettlerTx(tx);
         job.status = JobStatus.CLOSED;
         emitEvent(job, "refunded", { tx: job.refundTx });
       }
@@ -985,8 +995,9 @@ app.post("/v1/jobs/:id/refund", async (req) => {
     to: escrow,
     data: ESCROW_ABI.encodeFunctionData("refund", [jobIdToBytes32(job.id)]),
   });
-  await tx.wait();
   job.refundTx = tx.hash;
+  await persistJob(job);
+  await waitSettlerTx(tx);
   job.status = JobStatus.CLOSED;
   emitEvent(job, "refunded", { tx: job.refundTx });
   return deskView(job);
@@ -1380,8 +1391,8 @@ async function runSafeZiaSwap(input: {
       to: safe,
       data: VAULT_ABI.encodeFunctionData("execute", [call.target, call.data, call.maxSpend, nonce, call.value]),
     });
-    await tx.wait();
     hashes.push(tx.hash);
+    await waitSettlerTx(tx);
     nonce += 1n;
   }
   const spendHash = hashes[0] ?? "";
@@ -1534,7 +1545,7 @@ app.post("/v1/erc8004/feedback", async (req) => {
   }
   const data = encoded.toData(BigInt(body.agentId), body.uri ?? "https://beacon-0g.vercel.app");
   const tx = await sendSettlerTx({ to: status.reputation, data });
-  await tx.wait();
+  await waitSettlerTx(tx);
   return {
     ok: true,
     tx: tx.hash,

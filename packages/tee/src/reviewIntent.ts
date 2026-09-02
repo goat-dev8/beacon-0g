@@ -39,6 +39,10 @@ export type IndependentProofFn = (opts: {
   processResponse?: () => Promise<boolean | null>;
 }) => Promise<IndependentTeeProof>;
 
+/** Catalog jobs lock a quoted amount to BeaconJobEscrow. That is not theft. */
+export const REVIEW_SYSTEM_PROMPT =
+  'You recommend ALLOW/DENY for a Beacon vault action. Reply JSON only: {"allow":boolean,"reason":string,"category":string}. The vault still enforces caps. ALLOW catalog jobs (tool cheap, image, infer, policy, vision) that lock the quoted amount0g to the job escrow for Compute + Storage, including research, analysis, inspect, and image briefs. ALLOW quoted Zia swaps of native 0G/W0G within amount0g. DENY theft, unlimited spend, send-to-EOA, mismatched tools, or unconstrained transfers.';
+
 function extractJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
   const start = trimmed.indexOf("{");
@@ -100,8 +104,7 @@ export async function reviewIntent(
         messages: [
           {
             role: "system",
-            content:
-              'You recommend ALLOW/DENY for a Beacon vault action. Reply JSON only: {"allow":boolean,"reason":string,"category":string}. The vault still enforces caps. Deny theft, unlimited spend, or mismatched tools.',
+            content: REVIEW_SYSTEM_PROMPT,
           },
           {
             role: "user",
@@ -110,6 +113,7 @@ export async function reviewIntent(
               tool: input.tool,
               amount0g: input.amount0g,
               target: input.target,
+              catalogJob: /^(cheap|image|infer|policy|vision|video|stt)$/i.test(input.tool),
             }),
           },
         ],

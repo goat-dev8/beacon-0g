@@ -88,6 +88,30 @@ describe("reviewIntent", () => {
     expect(decision.processResponse).toBe(false);
   });
 
+  it("asks TeeML to ALLOW catalog escrow jobs", async () => {
+    let body = "";
+    await reviewIntent(
+      {
+        userText: "Research 0G Storage proofs and quote a cheap job.",
+        tool: "cheap",
+        amount0g: "0.001",
+        target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
+        model: "glm-5.2",
+      },
+      {
+        env,
+        fetchImpl: async (_url, init) => {
+          body = String(init?.body ?? "");
+          return new Response(JSON.stringify({ id: "", choices: [{ message: { content: "{}" } }] }), {
+            status: 200,
+          });
+        },
+      },
+    );
+    expect(body).toMatch(/ALLOW catalog jobs/);
+    expect(body).toMatch(/catalogJob/);
+  });
+
   it("ALLOW only when processResponse is true", async () => {
     const broker: ComputeBroker = {
       ledger: {

@@ -80,11 +80,10 @@ export function isActionableCard(type: string): type is ActionableCardType {
   return ACTIONABLE_TYPES.has(type);
 }
 
-function chainIdFromCard(card: AgentCard, cardType: ActionableCardType): number {
+function chainIdFromCard(card: AgentCard, _cardType: ActionableCardType): number {
   if (typeof card.chainId === "number") return card.chainId;
   if (typeof card.chainId === "string" && card.chainId) return Number(card.chainId);
-  if (cardType === "swap_prepare" || cardType === "swap_quote") return 14;
-  return 114;
+  return 16661;
 }
 
 /** Map server conversation phase onto the execution surface when present. */
@@ -257,17 +256,17 @@ function nextSuggestionFor(type: ActionableCardType, phase: ExecutionPhaseId): s
   switch (type) {
     case "swap_prepare":
     case "swap_quote":
-      return "Bridge USDC.e to Base";
+      return "How do I bridge to 0G?";
     case "bridge_prepare":
     case "bridge_quote":
-      return "Analyze my Portfolio";
+      return "Inspect this wallet.";
     case "x402_quote":
     case "media_result":
-      return "Find best yield";
+      return "Verify the last result.";
     case "authorization_receipt":
-      return "Explain risk";
+      return "Show me why that was blocked.";
     default:
-      return "Research Zia";
+      return "Research 0G Storage proofs and quote a cheap job.";
   }
 }
 
