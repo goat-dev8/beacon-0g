@@ -998,7 +998,34 @@ async function runMcpTool(
       return "Bridge status is not wired on this API process.";
     }
     const fromChainId = extractBridgeFromChainId(args);
-    const st = await deps.statusBridge(hash, fromChainId);
+    let st: {
+      status: string;
+      sendingTx: string | null;
+      receivingTx: string | null;
+      complete: boolean;
+      honesty: string;
+    };
+    try {
+      st = await deps.statusBridge(hash, fromChainId);
+    } catch (err) {
+      const message = isAppError(err)
+        ? err.userMessage
+        : "LI.FI status failed. Destination is not complete.";
+      return JSON.stringify(
+        {
+          status: "NOT_FOUND",
+          sendingTx: hash,
+          receivingTx: null,
+          complete: false,
+          destinationComplete: false,
+          executableFromBeaconSafe: false,
+          proof: null,
+          honesty: message,
+        },
+        null,
+        2,
+      );
+    }
     const destOk = Boolean(st.complete && st.receivingTx);
     const explorer = (deps.env.ZEROG_EXPLORER ?? "https://chainscan.0g.ai").replace(/\/$/, "");
     if (deps.recordActivity) {
