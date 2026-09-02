@@ -107,7 +107,7 @@ export function DepositSection({
           onChange={(v) => onAmountChange(String(v))}
           string
           disabled={!wallet || pending}
-          hint="Approve 0G, then deposit into the Safe"
+          hint="Pays native 0G into the Safe. No token approval."
         />
         <div className="flex flex-wrap gap-2">
           {onMint && (

@@ -5,16 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Idempotent schema ensure for Flow OS tables (safe on every boot). */
-export async function ensureFlowSchema(pool: pg.Pool): Promise<void> {
-  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
-  const sqlPath = path.join(__dirname, "../../../db/migrations/002_flow_persistence.sql");
-  try {
-    const sql = readFileSync(sqlPath, "utf8");
-    await pool.query(sql);
-  } catch (err) {
-    // Fallback inline DDL if path resolution fails in bundled deploy
-    await pool.query(`
+const FALLBACK_DDL = `
 CREATE TABLE IF NOT EXISTS flow_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   wallet TEXT NOT NULL,
@@ -46,7 +37,43 @@ CREATE TABLE IF NOT EXISTS flow_activity (
   explorer_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-`);
+CREATE INDEX IF NOT EXISTS flow_conversations_wallet_idx
+  ON flow_conversations (LOWER(wallet), archived, updated_at DESC);
+CREATE INDEX IF NOT EXISTS flow_messages_conversation_idx
+  ON flow_messages (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS flow_activity_wallet_idx
+  ON flow_activity (LOWER(wallet), created_at DESC);
+`;
+
+function statementsFrom(sql: string): string[] {
+  return sql
+    .split(/;\s*(?:\r?\n|$)/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !/^CREATE EXTENSION/i.test(s));
+}
+
+/** Idempotent schema ensure for Flow OS tables (safe on every boot). */
+export async function ensureFlowSchema(pool: pg.Pool): Promise<void> {
+  try {
+    await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+  } catch {
+    // PG 13+ has gen_random_uuid in core; pooler roles may not create extensions.
+  }
+  const sqlPath = path.join(__dirname, "../../../db/migrations/002_flow_persistence.sql");
+  let sql = FALLBACK_DDL;
+  try {
+    sql = readFileSync(sqlPath, "utf8");
+  } catch {
+    sql = FALLBACK_DDL;
+  }
+  try {
+    for (const statement of statementsFrom(sql)) {
+      await pool.query(statement);
+    }
+  } catch (err) {
+    for (const statement of statementsFrom(FALLBACK_DDL)) {
+      await pool.query(statement);
+    }
     console.warn("flow schema fallback applied", err instanceof Error ? err.message : err);
   }
 }

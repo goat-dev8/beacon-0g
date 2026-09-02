@@ -118,6 +118,7 @@ export function FlowPage() {
     queryFn: () => api.listFlowConversations(wallet!),
     enabled: Boolean(wallet),
     refetchInterval: 30_000,
+    retry: 1,
   });
 
   const activityQuery = useQuery({
@@ -396,6 +397,13 @@ export function FlowPage() {
         onNewChat={() => void startNewChat()}
         recentActivity={recentActivity}
         loading={conversationsQuery.isLoading}
+        persistError={
+          conversationsQuery.error instanceof ApiError
+            ? conversationsQuery.error.message
+            : conversationsQuery.error
+              ? "Chat history could not be loaded."
+              : null
+        }
       />
 
       <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row")}>

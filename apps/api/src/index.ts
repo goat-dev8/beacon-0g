@@ -3,7 +3,6 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
 import { Interface, JsonRpcProvider, Wallet, getAddress, keccak256, toUtf8Bytes } from "ethers";
-import { Pool } from "pg";
 import {
   aristotleEip1559Fees,
   AppError,
@@ -29,7 +28,7 @@ import {
   verifySafeSessionToken,
 } from "./safeSession.js";
 import { serviceIdToTask, webJobRow, webQuoteDto, ZEROG_SERVICES } from "./jobDesk.js";
-import * as flowStore from "./flowStore.js";
+import { openFlowHistory } from "./flowHistory.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -37,14 +36,6 @@ assertZeroGRequired(process.env, env);
 const provider = new JsonRpcProvider(env.ZEROG_RPC_URL, env.CHAIN_ID);
 const settler = env.SETTLER_PRIVATE_KEY ? new Wallet(env.SETTLER_PRIVATE_KEY, provider) : null;
 let computeBroker: ComputeBroker | null = null;
-
-const flowPool = env.DATABASE_URL
-  ? new Pool({
-      connectionString: env.DATABASE_URL,
-      ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : undefined,
-      max: 5,
-    })
-  : null;
 
 async function requireBroker(): Promise<ComputeBroker> {
   if (!computeBroker) computeBroker = await createComputeBroker(env);
@@ -105,6 +96,10 @@ const VAULT_ABI = new Interface([
   "function setPolicy(uint256 maxSpendPerTx_, uint256 rollingWindowBudget_, uint256 rollingWindowSeconds_, uint256 sessionExpiresAt_)",
   "function setExecutor(address newExecutor)",
   "function execute(address target, bytes data, uint256 maxSpend, uint256 nonce, uint256 value) returns (bytes)",
+]);
+const ERC20_ABI = new Interface([
+  "function balanceOf(address) view returns (uint256)",
+  "function decimals() view returns (uint8)",
 ]);
 
 type StoredJob = {
@@ -273,11 +268,13 @@ async function requireEscrow(): Promise<string> {
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
 await app.register(cors, { origin: true });
-if (flowPool) {
-  await flowStore.ensureFlowSchema(flowPool);
-  app.log.info("flow persistence: postgres");
+
+const history = await openFlowHistory(env);
+const historyReady = Boolean(history);
+if (history) {
+  app.log.info({ kind: history.kind }, "flow persistence ready");
 } else {
-  app.log.warn("flow persistence: DATABASE_URL missing — history will not survive restart");
+  app.log.warn("flow persistence: no postgres and no Upstash — history will not survive restart");
 }
 
 app.get("/health", async () => ({
@@ -285,6 +282,8 @@ app.get("/health", async () => ({
   chainId: env.CHAIN_ID,
   network: env.NETWORK_NAME,
   asset: "native 0G",
+  history: historyReady,
+  historyKind: history?.kind ?? "none",
 }));
 
 app.get("/ready", async () => ({
@@ -294,6 +293,8 @@ app.get("/ready", async () => ({
   receipts: env.BEACON_RECEIPT_REGISTRY || null,
   computeKey: Boolean(env.COMPUTE_API_KEY),
   settler: Boolean(settler),
+  history: historyReady,
+  historyKind: history?.kind ?? "none",
 }));
 
 app.get("/v1/models", async () => {
@@ -1212,7 +1213,7 @@ app.post("/v1/vault/safe-swap/execute", async (req) => {
     fulfillHash,
     amountIn: quote.amountIn.toString(),
     amountOut: quote.amountOut.toString(),
-    recipient: getAddress(body.recipient),
+    recipient: safe,
     explorerSpend: explorerTx(spendHash),
     explorerFulfill: explorerTx(fulfillHash),
     chainId: env.CHAIN_ID,
@@ -1372,7 +1373,7 @@ app.post("/v1/flow/chat", async (req) => {
             symbolOut: "USDC",
             chainId: env.CHAIN_ID,
             slippageBps: 100,
-            warning: "Unlock Beacon Agent first. Thin books are refused before funds move.",
+            warning: "Unlock Beacon Agent if the session is locked. Thin books are refused before funds move.",
             honesty:
               "Native 0G → W0G.deposit → approve Zia SwapRouter → exactInputSingle. Output stays in the Safe.",
             ogPrimitive: "Zia SwapRouter",
@@ -1477,6 +1478,7 @@ app.get("/v1/agents", async () => ({
 app.get("/v1/agents/balances", async (req) => {
   const walletRaw = String((req.query as { wallet?: string }).wallet ?? "");
   let formatted = "0";
+  let usdcFormatted = "0";
   if (walletRaw && env.BEACON_VAULT_FACTORY) {
     const wallet = getAddress(walletRaw);
     const raw = await provider.call({
@@ -1488,6 +1490,14 @@ app.get("/v1/agents/balances", async (req) => {
       const wealthRaw = await provider.call({ to: safe, data: VAULT_ABI.encodeFunctionData("wealth") });
       const [wealth] = VAULT_ABI.decodeFunctionResult("wealth", wealthRaw);
       formatted = format0g(wealth).replace(/ 0G$/, "");
+      if (env.ZEROG_USDCE) {
+        const usdcRaw = await provider.call({
+          to: env.ZEROG_USDCE,
+          data: ERC20_ABI.encodeFunctionData("balanceOf", [safe]),
+        });
+        const [usdc] = ERC20_ABI.decodeFunctionResult("balanceOf", usdcRaw);
+        usdcFormatted = (Number(usdc) / 1e6).toString();
+      }
     }
   }
   return {
@@ -1495,17 +1505,22 @@ app.get("/v1/agents/balances", async (req) => {
     wallet: walletRaw,
     balances: {
       usdt0: { address: "native", formatted, symbol: "0G" },
-      fxrp: { address: env.ZEROG_USDCE, formatted: "0", symbol: "USDC.e" },
+      fxrp: { address: env.ZEROG_USDCE, formatted: usdcFormatted, symbol: "USDC.e" },
       mockUsdt0: null,
     },
   };
 });
 
+function requireHistory() {
+  if (!history || !historyReady) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  return history;
+}
+
 app.get("/v1/flow/conversations", async (req) => {
   const wallet = String((req.query as { wallet?: string }).wallet ?? "");
   if (!wallet) return { ok: true, conversations: [] };
-  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
-  const conversations = await flowStore.listConversations(flowPool, getAddress(wallet));
+  const store = requireHistory();
+  const conversations = await store.listConversations(getAddress(wallet));
   return { ok: true, conversations };
 });
 
@@ -1513,9 +1528,8 @@ app.post("/v1/flow/conversations", async (req) => {
   const body = z
     .object({ wallet: z.string(), title: z.string().optional(), agentId: z.string().optional() })
     .parse(req.body);
-  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
-  const conversation = await flowStore.createConversation(
-    flowPool,
+  const store = requireHistory();
+  const conversation = await store.createConversation(
     getAddress(body.wallet),
     body.title || "New chat",
     body.agentId || "general",
@@ -1526,10 +1540,11 @@ app.post("/v1/flow/conversations", async (req) => {
 app.get("/v1/flow/conversations/:id", async (req) => {
   const id = (req.params as { id: string }).id;
   const wallet = String((req.query as { wallet?: string }).wallet ?? "");
-  if (!wallet || !flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
-  const conversation = await flowStore.getConversation(flowPool, id, getAddress(wallet));
+  if (!wallet) throw new AppError("HISTORY_PERSISTENCE_FAILED", { message: "Connect a wallet to load chat history." });
+  const store = requireHistory();
+  const conversation = await store.getConversation(id, getAddress(wallet));
   if (!conversation) throw new AppError("JOB_NOT_FOUND", { message: "Conversation not found." });
-  const rows = await flowStore.listMessages(flowPool, id);
+  const rows = await store.listMessages(id);
   return {
     ok: true,
     conversation,
@@ -1554,18 +1569,18 @@ app.patch("/v1/flow/conversations/:id", async (req) => {
       archive: z.boolean().optional(),
     })
     .parse(req.body);
-  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
+  const store = requireHistory();
   const wallet = getAddress(body.wallet);
-  if (body.archive) await flowStore.archiveConversation(flowPool, id, wallet);
-  else if (body.title) await flowStore.renameConversation(flowPool, id, wallet, body.title);
-  else if (body.pinned !== undefined) await flowStore.pinConversation(flowPool, id, wallet, body.pinned);
+  if (body.archive) await store.archiveConversation(id, wallet);
+  else if (body.title) await store.renameConversation(id, wallet, body.title);
+  else if (body.pinned !== undefined) await store.pinConversation(id, wallet, body.pinned);
   return { ok: true };
 });
 
 app.get("/v1/flow/activity", async (req) => {
   const wallet = String((req.query as { wallet?: string }).wallet ?? "");
-  if (!wallet || !flowPool) return { ok: true, activity: [] };
-  const activity = await flowStore.listActivity(flowPool, getAddress(wallet));
+  if (!wallet || !history) return { ok: true, activity: [] };
+  const activity = await history.listActivity(getAddress(wallet));
   return { ok: true, activity };
 });
 
@@ -1580,9 +1595,8 @@ app.post("/v1/flow/activity", async (req) => {
       meta: z.record(z.string(), z.unknown()).optional(),
     })
     .parse(req.body);
-  if (!flowPool) throw new AppError("HISTORY_PERSISTENCE_FAILED");
-  await flowStore.recordActivity(
-    flowPool,
+  const store = requireHistory();
+  await store.recordActivity(
     getAddress(body.wallet),
     body.kind,
     body.title,
@@ -1626,20 +1640,21 @@ app.post("/v1/agents/chat", async (req) => {
   const agentId = body.agentId ?? "general";
   const displayModel = data.quote?.modelId ?? "0G Router";
   let conversationId = body.conversationId ?? null;
-  if (body.wallet && flowPool) {
+  if (body.wallet) {
+    const store = requireHistory();
     const wallet = getAddress(body.wallet);
     if (!conversationId) {
       const title = body.message.slice(0, 72) || "New chat";
-      const created = await flowStore.createConversation(flowPool, wallet, title, agentId);
+      const created = await store.createConversation(wallet, title, agentId);
       conversationId = String(created.id);
     }
     const persistedId = conversationId;
-    await flowStore.appendMessage(flowPool, persistedId, {
+    await store.appendMessage(persistedId, {
       role: "user",
       agentId,
       text: body.message,
     });
-    await flowStore.appendMessage(flowPool, persistedId, {
+    await store.appendMessage(persistedId, {
       role: "assistant",
       agentId,
       text: data.reply ?? "",
@@ -1647,7 +1662,7 @@ app.post("/v1/agents/chat", async (req) => {
       displayModel,
     });
     if (body.state) {
-      await flowStore.updateConversationState(flowPool, persistedId, body.state, agentId);
+      await store.updateConversationState(persistedId, body.state, agentId);
     }
   }
   return {

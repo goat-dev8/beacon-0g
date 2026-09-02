@@ -125,5 +125,8 @@ describe("buildSwapTx", () => {
     expect(built.calls[2].selector.toLowerCase()).toBe(EXACT_INPUT_SINGLE_SELECTOR);
     expect(built.calls[2].target.toLowerCase()).toBe(quote.router.toLowerCase());
     expect(built.calls[2].maxSpend).toBe(quote.amountIn);
+    expect(built.calls[0].maxSpend).toBe(0n);
+    expect(built.calls[1].maxSpend).toBe(0n);
+    expect(built.calls[0].value).toBe(quote.amountIn);
   });
 });

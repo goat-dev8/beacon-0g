@@ -52,7 +52,8 @@ const USER_MESSAGES: Record<ErrorCode, string> = {
   COMPUTE_FAILED: "0G Compute did not return a usable result. You have not been charged for a pass.",
   INSUFFICIENT_TREASURY:
     "0G Compute treasury could not pay the provider. This is not your Safe balance. Escrow refunds.",
-  HISTORY_PERSISTENCE_FAILED: "Chat could not be saved. Connect a wallet and try again.",
+  HISTORY_PERSISTENCE_FAILED:
+    "Chat history could not be saved. The API database is unavailable — connect a wallet after production history is online.",
   ENV_INVALID: "This deployment is not configured for 0G Aristotle.",
 };
 

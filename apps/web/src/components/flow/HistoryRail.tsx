@@ -29,6 +29,7 @@ type Props = {
   onNewChat: () => void;
   recentActivity: Activity[];
   loading?: boolean;
+  persistError?: string | null;
 };
 
 export function HistoryRail({
@@ -51,6 +52,7 @@ export function HistoryRail({
   onNewChat,
   recentActivity,
   loading,
+  persistError,
 }: Props) {
   if (!open) {
     return (
@@ -119,7 +121,10 @@ export function HistoryRail({
             Connect your wallet so chats, swaps, payments, and receipts persist by address.
           </p>
         )}
-        {wallet && conversations.length === 0 && !loading && (
+        {wallet && persistError && (
+          <p className="px-2 py-4 text-[13px] leading-relaxed text-[var(--p-danger)]">{persistError}</p>
+        )}
+        {wallet && !persistError && conversations.length === 0 && !loading && (
           <p className="px-2 py-4 text-[13px] text-[var(--p-muted)]">No conversations yet. Send a message to start.</p>
         )}
         <div className="space-y-0.5">
