@@ -225,7 +225,11 @@ function summaryForCard(card: AgentCard, cardType: ActionableCardType): string {
     return `Swap ${String(card.amountInDisplay)} ${symbolIn} → ~${est} ${symbolOut}`;
   }
   if (cardType === "bridge_prepare" || cardType === "bridge_quote") {
-    return `Bridge ${String(card.amountDisplay)} USDC.e → ${String(card.destination)}`;
+    const amt = String(card.amountIn ?? card.amountDisplay ?? "");
+    const assetIn = String(card.assetIn ?? "USDC");
+    const assetOut = String(card.assetOut ?? "USDC.e");
+    const est = String(card.estimatedOut ?? "");
+    return `Bridge ${amt} ${assetIn} → ~${est} ${assetOut}`;
   }
   if (cardType === "x402_quote") {
     return `${String(card.priceUsdt0)} 0G · ${String(card.provider ?? "Beacon")}`;
