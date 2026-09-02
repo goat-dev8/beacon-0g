@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { ensureSafeAgentSession } from "@/lib/safeSession";
 import { executeLifiBridge } from "@/lib/wallet";
 import { classifyExecutionFailure } from "@/lib/walletFailures";
-import { jobPipeline, swapQuoteExpired } from "@/lib/quoteFreshness";
+import { jobPipeline, jobPhaseFromStatus, swapQuoteExpired } from "@/lib/quoteFreshness";
 import { SafeMarkdown } from "@/components/SafeMarkdown";
 import type { CardExecutionState, AgentCard } from "@/lib/executionPhases";
 import type { ConvState, PaidResendMeta } from "@/lib/flowTypes";
@@ -105,6 +105,30 @@ export function ActionCard({
   const [jobImage, setJobImage] = useState<string | null>(null);
   const [jobDenial, setJobDenial] = useState<string | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (card.type !== "job_offer") return;
+    const id = String(card.jobId ?? "");
+    if (!id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const row = await api.getJob(id);
+        if (cancelled) return;
+        const status = String(row.status ?? row.job?.status ?? "");
+        if (status) setJobStatus(status);
+        if (row.resultText) setJobResult(row.resultText);
+        if (row.imageB64) setJobImage(row.imageB64);
+        if (row.denial) setJobDenial(row.denial);
+        setJobPhase(jobPhaseFromStatus(status));
+      } catch {
+        /* quoted job may not exist on this API yet */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [card.type, card.jobId]);
 
   useEffect(() => {
     if (card.type === "swap_prepare" || card.type === "media_result" || card.type === "bridge_quote" || card.type === "job_offer") {
@@ -444,6 +468,11 @@ export function ActionCard({
       tokenBalances?: Array<{ symbol: string; balance: string }>;
       owner?: string | null;
       interfaceIds?: string[];
+      eip1967Implementation?: string | null;
+      txType?: string;
+      gasPriceWei?: string;
+      effectiveGasPriceWei?: string;
+      confirmations?: number;
     };
     return (
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
@@ -493,6 +522,19 @@ export function ActionCard({
         {inspect.logs != null ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Logs {inspect.logs}</p>
         ) : null}
+        {inspect.txType != null ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Type {inspect.txType}</p>
+        ) : null}
+        {inspect.confirmations != null ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Confirmations {inspect.confirmations}</p>
+        ) : null}
+        {inspect.effectiveGasPriceWei ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">
+            Effective gas {inspect.effectiveGasPriceWei}
+          </p>
+        ) : inspect.gasPriceWei ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Gas price {inspect.gasPriceWei}</p>
+        ) : null}
         {inspect.selector ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Selector {inspect.selector}</p>
         ) : null}
@@ -523,6 +565,11 @@ export function ActionCard({
         {inspect.implementation ? (
           <p className="mt-1 break-all font-mono text-xs text-[var(--p-muted)]">
             implementation {inspect.implementation}
+          </p>
+        ) : null}
+        {inspect.eip1967Implementation ? (
+          <p className="mt-1 break-all font-mono text-xs text-[var(--p-muted)]">
+            EIP-1967 implementation {inspect.eip1967Implementation}
           </p>
         ) : null}
         {(inspect.interfaceIds ?? []).map((id) => (
@@ -1535,6 +1582,21 @@ export function ActionCard({
             </a>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  if (card.type === "wallet_failure") {
+    return (
+      <div className="rounded-2xl border border-[var(--p-danger)]/40 bg-[var(--p-danger)]/10 p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-danger)]">
+          Wallet · {String(card.kind ?? "error")}
+        </p>
+        <p className="mt-2 font-medium text-[var(--p-fg)]">{String(card.title ?? "Wallet error")}</p>
+        <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.summary ?? "")}</p>
+        <p className="mt-3 font-mono text-xs text-[var(--p-muted)]">
+          Funds moved · {String(card.fundsMoved ?? "0 0G")}
+        </p>
       </div>
     );
   }

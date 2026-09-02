@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyExecutionFailure, looksLikeWalletError } from "./walletFailures";
+import { classifyExecutionFailure, looksLikeWalletError } from "./executionFailures.js";
 
 describe("classifyExecutionFailure", () => {
   it("maps wallet reject (4001)", () => {
@@ -42,8 +42,10 @@ describe("classifyExecutionFailure", () => {
     expect(classifyExecutionFailure(new Error("nonce too low")).kind).toBe("stale_nonce");
     expect(classifyExecutionFailure({ code: 4001, message: "ACTION_REJECTED" }).kind).toBe("user_rejected");
   });
+});
 
-  it("treats pasted wallet errors as classifiable copy", () => {
+describe("looksLikeWalletError", () => {
+  it("classifies pasted reject / wrong-network copy as inline", () => {
     expect(looksLikeWalletError("Wallet error: 4001 user rejected the request")).toBe(true);
     expect(looksLikeWalletError("Wallet error: unrecognized chain 4902")).toBe(true);
     expect(looksLikeWalletError("Swap 0.2 0G to USDC.e")).toBe(false);

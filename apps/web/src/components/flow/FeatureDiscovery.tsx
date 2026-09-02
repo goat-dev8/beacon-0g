@@ -91,6 +91,20 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
     icon: Crosshair,
   },
   {
+    id: "inspecttx",
+    title: "Inspect tx",
+    blurb: "Live receipt: status, gas, confirmations, Transfer logs. No invented ABI.",
+    prompt: "Inspect 0x5f056d0d5c51413450a639fb1e755354b43b13917c1470d4e56ac9fe3a0e9fc9",
+    icon: Crosshair,
+  },
+  {
+    id: "reject",
+    title: "Wallet reject",
+    blurb: "Paste a 4001 / wrong-network error. Classified in Flow. Nothing is marked complete.",
+    prompt: "Wallet error: 4001 user rejected the request",
+    icon: Shield,
+  },
+  {
     id: "bridge",
     title: "Bridge",
     blurb: "Hub, Stargate, Interport, Portal. Not executable from the Aristotle Safe.",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobPipeline, SWAP_QUOTE_TTL_MS, swapQuoteExpired } from "./quoteFreshness";
+import { jobPipeline, jobPhaseFromStatus, SWAP_QUOTE_TTL_MS, swapQuoteExpired } from "./quoteFreshness";
 
 describe("swapQuoteExpired", () => {
   it("keeps a fresh quote executable", () => {
@@ -19,5 +19,14 @@ describe("jobPipeline", () => {
     expect(jobPipeline("AUTHORIZED").label).toMatch(/Escrow/);
     expect(jobPipeline("GENERATING").pct).toBeGreaterThan(jobPipeline("AUTHORIZED").pct);
     expect(jobPipeline("CLOSED").pct).toBe(100);
+  });
+});
+
+describe("jobPhaseFromStatus", () => {
+  it("hydrates a settled job as done so View result can render", () => {
+    expect(jobPhaseFromStatus("CLOSED")).toBe("done");
+    expect(jobPhaseFromStatus("QUOTED")).toBe("idle");
+    expect(jobPhaseFromStatus("GENERATING")).toBe("running");
+    expect(jobPhaseFromStatus("FAILED")).toBe("failed");
   });
 });

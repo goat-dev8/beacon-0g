@@ -9,6 +9,7 @@ import {
   JobStatus,
   CHAIN_ID,
   assertZeroGRequired,
+  classifyExecutionFailure,
   format0g,
   isAppError,
   jobIdToBytes32,
@@ -1755,6 +1756,21 @@ app.post("/v1/flow/chat", async (req) => {
       reply:
         "Hard policy blocks unconstrained sends before funds move. TeeML can also DENY a vault action. Ask after a blocked swap or job for the exact cap vs requested amount.",
       cards: [{ type: "denied", title: "Why blocked", hard: "Allowlisted targets + MAX_TX.", semantic: "No last denial on file." }],
+    };
+  }
+  if (classified.kind === "wallet_error") {
+    const fail = classifyExecutionFailure(body.text);
+    return {
+      reply: `${fail.message} Nothing moved. Beacon will not invent a success from a wallet error.`,
+      cards: [
+        {
+          type: "wallet_failure",
+          title: fail.kind.replaceAll("_", " "),
+          kind: fail.kind,
+          summary: fail.message,
+          fundsMoved: "0 0G",
+        },
+      ],
     };
   }
   if (classified.kind === "balance") {

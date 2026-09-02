@@ -89,4 +89,22 @@ describe("inspectTransaction", () => {
     expect(out.transfers?.[0]?.display).toMatch(/USDC\.e/);
     expect(out.verifiedSource).toBeUndefined();
   });
+
+  it("reads the EIP-1967 implementation slot without inventing an ABI", async () => {
+    const impl = "0xc4c292d1533043a0509ef3272cd8090a46d26b5c";
+    const slotVal = "0x" + impl.slice(2).padStart(64, "0");
+    const out = await inspectAddress(
+      {
+        getCode: async () => `0x${"aa".repeat(80)}`,
+        getBalance: async () => 0n,
+        getTransactionCount: async () => 1,
+        getStorage: async () => slotVal,
+        call: async () => {
+          throw new Error("no metadata");
+        },
+      } as never,
+      "0x1f3aa82227281ca364bfb3d253b0f1af1da6473e",
+    );
+    expect(out.eip1967Implementation?.toLowerCase()).toBe(impl);
+  });
 });

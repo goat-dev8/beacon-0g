@@ -9,6 +9,15 @@ export function swapQuoteExpired(quotedAt: string | undefined | null, now = Date
   return now - t > SWAP_QUOTE_TTL_MS;
 }
 
+export function jobPhaseFromStatus(
+  status: string | undefined | null,
+): "idle" | "locking" | "running" | "done" | "failed" {
+  if (!status || status === "QUOTED") return "idle";
+  if (["PASSED", "CLOSED", "SETTLING"].includes(status)) return "done";
+  if (["FAILED", "REFUSING", "EXPIRED", "CANCELED"].includes(status)) return "failed";
+  return "running";
+}
+
 export function jobPipeline(status: string | undefined | null): { label: string; pct: number } {
   const map: Record<string, { label: string; pct: number }> = {
     QUOTED: { label: "Quoted", pct: 8 },

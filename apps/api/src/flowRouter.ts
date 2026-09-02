@@ -1,3 +1,5 @@
+import { looksLikeWalletError } from "@beacon/shared";
+
 export type FlowLane = "inline" | "job" | "transaction" | "deny";
 
 export type FlowKind =
@@ -14,6 +16,7 @@ export type FlowKind =
   | "spend"
   | "verify"
   | "erc8004"
+  | "wallet_error"
   | "cheap_model"
   | "image_job"
   | "research_job"
@@ -47,6 +50,9 @@ export function classifyFlowIntent(raw: string): FlowClassification {
   }
   if (/why (was (this |i |that )?|is (this |it )?)?(block|denied)|show me why that was blocked/.test(text)) {
     return { lane: "inline", kind: "why_blocked" };
+  }
+  if (looksLikeWalletError(raw)) {
+    return { lane: "inline", kind: "wallet_error" };
   }
   if (/verify/.test(text) && /last|proof|receipt|result/.test(text)) {
     return { lane: "inline", kind: "verify" };

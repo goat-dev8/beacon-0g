@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareReceipts, jobIdBytes32 } from "./onchainReceipt";
+import { compareReceipts, chatIdHashFromPlain, compareChatIdHash, jobIdBytes32 } from "./onchainReceipt";
 
 describe("jobIdBytes32", () => {
   it("sha256s a UUID the same way the settler does", () => {
@@ -48,5 +48,15 @@ describe("compareReceipts", () => {
 
   it("is neutral when neither side has a row", () => {
     expect(compareReceipts(null, { ...browser, exists: false }).match).toBeNull();
+  });
+});
+
+describe("compareChatIdHash", () => {
+  it("recomputes keccak256(utf8 chatId) in the browser", () => {
+    const plain = "chat-5d71852d";
+    const hashed = chatIdHashFromPlain(plain);
+    expect(compareChatIdHash(plain, hashed).match).toBe(true);
+    expect(compareChatIdHash(plain, "0x" + "00".repeat(32)).match).toBe(false);
+    expect(compareChatIdHash(null, hashed).match).toBeNull();
   });
 });

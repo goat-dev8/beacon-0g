@@ -1,4 +1,4 @@
-import { decodeFunctionResult, encodeFunctionData, sha256, toBytes, type Hex } from "viem";
+import { decodeFunctionResult, encodeFunctionData, keccak256, sha256, toBytes, type Hex } from "viem";
 import { CONTRACTS, NETWORK } from "./chain";
 
 const RECEIPTS_ABI = [
@@ -47,6 +47,31 @@ export function jobIdBytes32(jobId: string): Hex {
   const v = jobId.trim();
   if (/^0x[0-9a-fA-F]{64}$/.test(v)) return v.toLowerCase() as Hex;
   return sha256(toBytes(v));
+}
+
+/** Same encoding as the settler: keccak256(utf8 chatId). */
+export function chatIdHashFromPlain(chatId: string): Hex {
+  return keccak256(toBytes(chatId));
+}
+
+export function compareChatIdHash(
+  plain?: string | null,
+  onchain?: string | null,
+): { match: boolean | null; note: string } {
+  if (!plain) {
+    return { match: null, note: "No chatId on the job. This browser cannot recompute the registry hash." };
+  }
+  if (!onchain) {
+    return { match: null, note: "No registry chatIdHash yet." };
+  }
+  const local = chatIdHashFromPlain(plain);
+  if (local.toLowerCase() === onchain.toLowerCase()) {
+    return { match: true, note: "Browser keccak256(utf8 chatId) matches the registry chatIdHash." };
+  }
+  return {
+    match: false,
+    note: "Browser keccak256(utf8 chatId) does not match the registry. Registry wins.",
+  };
 }
 
 function norm(value?: string | boolean | null): string {

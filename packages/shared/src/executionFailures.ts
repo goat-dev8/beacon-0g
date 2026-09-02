@@ -87,6 +87,7 @@ export function classifyExecutionFailure(err: unknown): { kind: ExecutionFailure
   return { kind: "unknown", message: raw };
 }
 
+/** True when the user pasted a wallet/RPC error instead of asking for a Job. */
 export function looksLikeWalletError(raw: string): boolean {
   const text = raw.toLowerCase();
   return (

@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { explorerAddress, explorerTx, storageScan } from "@/lib/explorers";
 import { apiBase } from "@/lib/publicEnv";
 import { proofOutcome } from "@/lib/verifyProof";
-import { compareReceipts, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
+import { compareReceipts, compareChatIdHash, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
 
 type OnchainReceipt = {
   storageRoot?: string;
@@ -24,7 +24,15 @@ type VerifyPayload = {
     id: string;
     status: string;
     quote?: { modelId?: string; lock0gDisplay?: string; quoteHash?: string };
-    tee?: { allow?: boolean; reason?: string };
+    tee?: {
+      allow?: boolean;
+      reason?: string;
+      chatId?: string;
+      processResponse?: boolean | null;
+      eip191Ok?: boolean | null;
+      recoveredSigner?: string | null;
+      expectedSigner?: string | null;
+    };
     lockTx?: string | null;
     releaseTx?: string | null;
     refundTx?: string | null;
@@ -85,6 +93,7 @@ export function VerifyPage() {
       }
     : (data?.onchain ?? null);
   const compare = browser ? compareReceipts(data?.onchain ?? null, browser) : null;
+  const chatHash = compareChatIdHash(job?.tee?.chatId, browser?.chatIdHash ?? onchain?.chatIdHash);
   const storageRoot = onchain?.storageRoot || job?.storageRoot || null;
   const storageHref = storageRoot ? storageScan(storageRoot) : null;
   const outcome = proofOutcome(job, onchain);
@@ -208,6 +217,26 @@ export function VerifyPage() {
               {browser?.jobKey ? (
                 <p className="mt-2 break-all font-mono text-[11px]" style={{ color: FAINT }}>
                   receipts({browser.jobKey})
+                </p>
+              ) : null}
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Independent TEE hash
+              </p>
+              <p className="mt-2 text-sm" style={{ color: chatHash.match === false ? DANGER : MUTED }}>
+                {chatHash.note}
+              </p>
+              <p className="mt-2 text-sm" style={{ color: MUTED }}>
+                processResponse {job?.tee?.processResponse == null ? "—" : String(job.tee.processResponse)} · EIP-191{" "}
+                {job?.tee?.eip191Ok == null ? "—" : String(job.tee.eip191Ok)}. API TEE flags are not a pass; the
+                registry row is.
+              </p>
+              {job?.tee?.recoveredSigner ? (
+                <p className="mt-2 break-all font-mono text-[11px]" style={{ color: FAINT }}>
+                  recovered {job.tee.recoveredSigner}
+                  {onchain?.teeSigner ? ` · registry ${onchain.teeSigner}` : ""}
                 </p>
               ) : null}
             </section>

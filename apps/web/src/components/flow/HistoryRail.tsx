@@ -1,4 +1,4 @@
-import { Search, PanelLeftClose, PanelLeft, Pencil, Star, X } from "lucide-react";
+import { Search, PanelLeftClose, PanelLeft, Pencil, Star, X, Download } from "lucide-react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import type { FlowConv } from "@/lib/flowTypes";
@@ -114,6 +114,38 @@ export function HistoryRail({
             className="min-h-10 w-full rounded-[var(--p-radius-sm)] border border-[var(--p-border)] bg-[var(--p-bg)] py-2 pl-8 pr-2 text-[13px] text-[var(--p-fg)] outline-none placeholder:text-[var(--p-muted)] focus:border-signal/40"
           />
         </div>
+        {wallet && conversations.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const payload = {
+                exportedAt: new Date().toISOString(),
+                conversations: conversations.map((c) => ({
+                  id: c.id,
+                  title: c.title,
+                  updatedAt: c.updated_at,
+                  jobIds: c.job_ids ?? [],
+                  proofs: (c.job_ids ?? []).map((id) => ({
+                    jobId: id,
+                    verify: `/verify/${id}`,
+                  })),
+                })),
+                activity: recentActivity,
+              };
+              const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+              const href = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = href;
+              a.download = "beacon-history-proofs.json";
+              a.click();
+              URL.revokeObjectURL(href);
+            }}
+            className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[var(--p-border)] px-3 text-xs font-medium text-[var(--p-muted)] hover:text-[var(--p-fg)]"
+          >
+            <Download className="size-3.5" />
+            Export proofs
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">

@@ -54,4 +54,15 @@ describe("classifyFlowIntent", () => {
       classifyFlowIntent("Explain 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E from the live evidence."),
     ).toEqual({ lane: "job", kind: "analysis_job" });
   });
+
+  it("pasted wallet errors stay INLINE and do not become Jobs", () => {
+    expect(classifyFlowIntent("Wallet error: 4001 user rejected the request")).toEqual({
+      lane: "inline",
+      kind: "wallet_error",
+    });
+    expect(classifyFlowIntent("Wallet error: unrecognized chain 4902")).toEqual({
+      lane: "inline",
+      kind: "wallet_error",
+    });
+  });
 });

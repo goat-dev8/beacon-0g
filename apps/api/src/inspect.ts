@@ -19,7 +19,25 @@ const INTERFACE_IDS: Array<{ id: string; hex: `0x${string}` }> = [
   { id: "ERC-165", hex: "0x01ffc9a7" },
   { id: "ERC-20", hex: "0x36372b07" },
   { id: "ERC-721", hex: "0x80ac58cd" },
+  { id: "IERC7857", hex: "0x2afbede9" },
+  { id: "IERC7857.Authorize", hex: "0xdf597d99" },
+  { id: "IERC7857.Cloneable", hex: "0x74f8628b" },
 ];
+
+/** EIP-1967 implementation slot. Standard storage slot, not an invented ABI. */
+const EIP1967_IMPL_SLOT =
+  "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+function addressFromStorageSlot(raw: string | null | undefined): string | null {
+  if (!raw || raw === "0x") return null;
+  const hex = raw.replace(/^0x/, "").padStart(64, "0");
+  if (/^0+$/.test(hex)) return null;
+  try {
+    return getAddress(`0x${hex.slice(24)}`);
+  } catch {
+    return null;
+  }
+}
 
 const SELECTORS: Array<{ id: string; hex: string }> = [
   { id: "erc20.balanceOf", hex: "70a08231" },
@@ -45,6 +63,7 @@ export type AddressInspect = {
   tokenBalances?: Array<{ symbol: string; address: string; balance: string }>;
   owner?: string | null;
   implementation?: string | null;
+  eip1967Implementation?: string | null;
   selectorsPresent: string[];
   interfaceIds?: string[];
   verifiedSource: false;
@@ -66,6 +85,10 @@ export type TxInspect = {
   inputBytes?: number;
   selector?: string | null;
   logs?: number;
+  txType?: string;
+  gasPriceWei?: string;
+  effectiveGasPriceWei?: string;
+  confirmations?: number;
   transfers?: Array<{
     token?: string;
     symbol?: string;
@@ -167,6 +190,7 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
 
   let owner: string | null = null;
   let implementation: string | null = null;
+  let eip1967Implementation: string | null = null;
   if (isContract && selectorsPresent.includes("ownable.owner")) {
     try {
       const raw = await provider.call({ to: address, data: ERC20.encodeFunctionData("owner") });
@@ -181,6 +205,14 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
       implementation = ERC20.decodeFunctionResult("implementation", raw)[0] as string;
     } catch {
       implementation = null;
+    }
+  }
+  if (isContract && typeof provider.getStorage === "function") {
+    try {
+      const slot = await provider.getStorage(address, EIP1967_IMPL_SLOT);
+      eip1967Implementation = addressFromStorageSlot(typeof slot === "string" ? slot : String(slot ?? ""));
+    } catch {
+      eip1967Implementation = null;
     }
   }
 
@@ -221,6 +253,7 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
     tokenBalances,
     owner,
     implementation,
+    eip1967Implementation,
     selectorsPresent,
     interfaceIds,
     verifiedSource: false,
@@ -254,6 +287,28 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
   }
   const status = receipt?.status === 1 ? "success" : "reverted";
   const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  let confirmations: number | undefined;
+  if (receipt?.blockNumber != null && typeof provider.getBlockNumber === "function") {
+    try {
+      const latest = Number(await provider.getBlockNumber());
+      const mined = Number(receipt.blockNumber);
+      if (Number.isFinite(latest) && Number.isFinite(mined) && latest >= mined) {
+        confirmations = latest - mined;
+      }
+    } catch {
+      confirmations = undefined;
+    }
+  }
+  const gasPrice =
+    tx && "gasPrice" in tx && tx.gasPrice != null
+      ? (tx.gasPrice as bigint).toString()
+      : undefined;
+  const effective =
+    receipt && "gasPrice" in receipt && receipt.gasPrice != null
+      ? receipt.gasPrice.toString()
+      : receipt && "effectiveGasPrice" in receipt && receipt.effectiveGasPrice != null
+        ? String(receipt.effectiveGasPrice)
+        : undefined;
   const transfers = (receipt?.logs ?? [])
     .filter((log) => log.topics?.[0]?.toLowerCase() === transferTopic && log.topics.length >= 3)
     .slice(0, 8)
@@ -292,6 +347,10 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
     inputBytes: tx?.data ? (tx.data.length - 2) / 2 : undefined,
     selector: tx?.data && tx.data.length >= 10 ? tx.data.slice(0, 10) : null,
     logs: receipt?.logs.length ?? 0,
+    txType: tx && "type" in tx && tx.type != null ? String(tx.type) : undefined,
+    gasPriceWei: gasPrice,
+    effectiveGasPriceWei: effective,
+    confirmations,
     transfers,
   };
 }
