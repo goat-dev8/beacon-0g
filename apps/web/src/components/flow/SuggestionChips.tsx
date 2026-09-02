@@ -44,6 +44,7 @@ export const FLOW_FEATURES: FlowFeature[] = [
   { id: "cost", label: "Cost", prompt: "Show what the last job cost.", icon: LineChart },
   { id: "safe", label: "Safe", prompt: "Help me fund Beacon Safe and set spend policy", icon: Landmark },
   { id: "pause", label: "Pause", prompt: "Pause my Safe.", icon: Wallet },
+  { id: "history", label: "History", prompt: "What did I do last week?", icon: Boxes },
 ];
 
 type Props = {

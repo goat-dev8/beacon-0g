@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-function canonicalize(value: unknown): unknown {
+export function canonicalize(value: unknown): unknown {
   if (value === null || typeof value !== "object") {
     return value;
   }

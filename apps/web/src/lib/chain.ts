@@ -21,4 +21,6 @@ export const CONTRACTS = {
   w0g: "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c" as `0x${string}`,
   ziaRouter: "0x18cCa38E51c4C339A6BD6e174025f08360FEEf30" as `0x${string}`,
   ziaQuoter: "0x23b55293b7F06F6c332a0dDA3D88d8921218425B" as `0x${string}`,
+  evidenceAnchor: (import.meta.env.VITE_BEACON_EVIDENCE_ANCHOR ||
+    "0xB94934f848A13Ae5E7fC5B2a91E61EDFaEc4ca6B") as `0x${string}`,
 } as const;

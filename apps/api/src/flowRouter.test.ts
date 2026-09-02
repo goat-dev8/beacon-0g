@@ -34,6 +34,7 @@ describe("classifyFlowIntent", () => {
   it("why-blocked and spend stay INLINE", () => {
     expect(classifyFlowIntent("Why was this blocked?").kind).toBe("why_blocked");
     expect(classifyFlowIntent("How much did I spend?").kind).toBe("spend");
+    expect(classifyFlowIntent("What did I do last week?").kind).toBe("memory_recall");
   });
 
   it("cheap model routing is a JOB", () => {

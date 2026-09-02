@@ -22,7 +22,7 @@ export {
   isTerminalPhase,
 } from "./transitions.js";
 
-export { hashImmutableInput } from "./hash.js";
+export { hashImmutableInput, canonicalize } from "./hash.js";
 
 export {
   preflightVaultCalls,
@@ -44,3 +44,12 @@ export {
   type InMemoryEventStore,
   type AppendExecutionEventInput,
 } from "./events.js";
+
+export { bindAction, hashPolicySnapshot, hashTeeVerdict, hashUtf8 } from "./actionProof.js";
+export type { ActionBinding, ActionBindingInput } from "./actionProof.js";
+
+export { classifyRisk, AUTO_SWAP_WEI } from "./risk.js";
+export type { RiskDecision, RiskFactor, RiskInput, RiskTier } from "./risk.js";
+
+export { aggregateGuards } from "./guards.js";
+export type { GuardMode, GuardReport, GuardVote } from "./guards.js";

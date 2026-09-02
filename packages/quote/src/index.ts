@@ -4,3 +4,5 @@ export { selectModel } from "./routeModel.js";
 export type { ModelTask, SelectedModel } from "./routeModel.js";
 export { quoteJob } from "./priceJob.js";
 export type { QuoteJobInput, JobQuote } from "./priceJob.js";
+export { listCheapChatOptions } from "./costRoute.js";
+export type { ChatCostOption } from "./costRoute.js";

@@ -24,7 +24,8 @@ export const BEACON_CAPABILITIES: Capability[] = [
   { name: "list_bridge_routes", group: "bridge", description: "Real 0G Hub / get.0g.ai / Zia-documented bridges. Not executable from the Aristotle Safe.", mutates: false, quote: false, proof: false },
   { name: "mcp_grant", group: "execution", description: "Scoped MCP grants in Redis. One wallet signature mints a Bearer token. Tools execute through the Safe; the agent never gets a private key.", mutates: true, quote: false, proof: false },
   { name: "mcp_oauth", group: "execution", description: "OAuth discovery + PKCE authorization_code so an external MCP client can Authenticate without pasting a token.", mutates: false, quote: false, proof: false },
-  { name: "preflight_tx", group: "safety", description: "Deterministic ALLOW/DENY of vault call envelopes (target, selector, value, destination, deadline) before spend.", mutates: false, quote: false, proof: false },
+  { name: "preflight_tx", group: "safety", description: "Deterministic ALLOW/DENY of vault call envelopes plus eth_call simulation. Hard DENY overrides any model.", mutates: false, quote: false, proof: false },
+  { name: "evidence_memory", group: "research", description: "Recall jobs, swaps, and receipts from History + Storage roots + on-chain txs.", mutates: false, quote: false, proof: true },
   { name: "erc8004_feedback", group: "execution", description: "Official giveFeedback after a real job release or refund. Agent owner cannot self-feedback. Client is a dedicated EOA.", mutates: true, quote: false, proof: true },
   { name: "why_denied", group: "safety", description: "Explain the last policy block before funds moved.", mutates: false, quote: false, proof: false },
 ];

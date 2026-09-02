@@ -34,6 +34,7 @@ for (const [name, addr] of Object.entries({
   escrow: env.BEACON_JOB_ESCROW,
   factory: env.BEACON_VAULT_FACTORY,
   receipts: env.BEACON_RECEIPT_REGISTRY,
+  evidenceAnchor: env.BEACON_EVIDENCE_ANCHOR,
 })) {
   if (!addr) {
     console.error(`missing ${name}`);

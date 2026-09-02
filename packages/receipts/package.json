@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@beacon/shared": "*"
+    "@beacon/shared": "*",
+    "ethers": "^6.17.0"
   }
 }

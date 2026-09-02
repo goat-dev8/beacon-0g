@@ -16,6 +16,34 @@
   ],
   "x402Support": false,
   "active": true,
+  "chainId": 16661,
+  "paymentUnit": "native 0G",
+  "proof": {
+    "mechanism": "action-hash + receipt registry + 0G Storage",
+    "verify": "https://beacon-0g.vercel.app/verify/:id"
+  },
+  "capabilities": [
+    "inspect",
+    "jobs",
+    "zia-swap",
+    "preflight",
+    "evidence-memory",
+    "mcp-grant",
+    "erc-8004"
+  ],
+  "mcpTools": [
+    "get_safe",
+    "get_policy",
+    "get_spend",
+    "infer",
+    "swap",
+    "preflight_tx",
+    "inspect",
+    "bridge",
+    "track_bridge",
+    "verify_job"
+  ],
+  "executionScope": "Beacon Safe executor only. The agent never receives a private key.",
   "registrations": [
     {
       "agentId": 3531902,

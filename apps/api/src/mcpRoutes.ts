@@ -110,7 +110,13 @@ export type McpRouteDeps = {
     amount0g: number;
     tokenIn?: string;
     tokenOut?: string;
-  }) => Promise<{ verdict: "ALLOW" | "DENY"; reason: string; intentHash?: string; quote?: unknown }>;
+  }) => Promise<{
+    verdict: "ALLOW" | "DENY";
+    reason: string;
+    intentHash?: string;
+    quote?: unknown;
+    risk?: { tier: string; needsHuman: boolean; reason: string };
+  }>;
   spendReport?: (wallet: string) => Promise<{
     report: { lanes: unknown[]; honesty: string };
     windows?: Record<string, { lanes: unknown[] }>;
@@ -912,6 +918,13 @@ async function runMcpTool(
         });
         if (decision.verdict === "DENY") {
           return JSON.stringify({ verdict: "DENY", reason: decision.reason, intentHash: decision.intentHash });
+        }
+        if (decision.risk?.needsHuman) {
+          return JSON.stringify({
+            verdict: "DENY",
+            reason: `Needs owner confirmation in Flow: ${decision.risk.reason}`,
+            risk: decision.risk,
+          });
         }
       }
       const quote = await quoteZiaPair({

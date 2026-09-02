@@ -10,3 +10,5 @@ export type {
   ReceiptOfferBinding,
   ReceiptPaymentBinding,
 } from "./build.js";
+export { merkleRoot, merkleProof, verifyMerkleProof } from "./merkle.js";
+export type { MerkleProof } from "./merkle.js";

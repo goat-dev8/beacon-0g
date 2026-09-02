@@ -6,6 +6,7 @@ import { proofOutcome } from "@/lib/verifyProof";
 import { compareReceipts, compareChatIdHash, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
 import { compareResultHash, resultSha256 } from "@/lib/resultHash";
 import { recomputeRouterTraceClaim } from "@/lib/routerTraceHash";
+import { recomputeActionHash } from "@/lib/actionProof";
 import { SafeMarkdown } from "@/components/SafeMarkdown";
 import "highlight.js/styles/github-dark.css";
 
@@ -62,6 +63,60 @@ type VerifyPayload = {
     resultSha256?: string | null;
     denial?: string | null;
     createdAt?: string | null;
+    brief?: string | null;
+    wallet?: string | null;
+    vault?: string | null;
+    actionProof?: {
+      actionHash?: string;
+      briefHash?: string;
+      policyHash?: string;
+      teeHash?: string;
+      quoteHash?: string;
+      storageRoot?: string;
+      lockTx?: string;
+      settleTx?: string;
+      receiptTx?: string;
+      nonce?: string;
+      deadline?: string;
+      chainId?: number;
+    } | null;
+    preflight?: { verdict?: string; reason?: string } | null;
+    risk?: { tier?: string; reason?: string } | null;
+    guards?: {
+      mode?: string;
+      allow?: boolean;
+      reason?: string;
+      votes?: Array<{ name?: string; allow?: boolean; reason?: string; kind?: string }>;
+    } | null;
+    composition?: { kind?: string; steps?: Array<{ id?: string; label?: string; state?: string; evidence?: string | null }> } | null;
+    evidenceAnchor?: {
+      root?: string;
+      tx?: string;
+      leafCount?: number;
+      proof?: { leaf?: string; index?: number; siblings?: string[]; root?: string };
+    } | null;
+  } | null;
+  action?: {
+    actionHash?: string;
+    binding?: {
+      actionHash?: string;
+      policyHash?: string;
+      teeHash?: string;
+      nonce?: string;
+      deadline?: string;
+      briefHash?: string;
+      quoteHash?: string;
+      chainId?: number;
+    };
+    policy?: unknown;
+  } | null;
+  evidenceAnchor?: {
+    configured?: boolean;
+    address?: string | null;
+    root?: string;
+    tx?: string;
+    leafCount?: number;
+    proof?: { leaf?: string; index?: number; siblings?: string[]; root?: string };
   } | null;
   identity?: {
     agentId?: string;
@@ -207,6 +262,34 @@ export function VerifyPage() {
     browserClaim && routerReported?.claimHash
       ? browserClaim.toLowerCase() === routerReported.claimHash.toLowerCase()
       : null;
+  const binding = job?.actionProof ?? data?.action?.binding ?? null;
+  const browserAction = useMemo(() => {
+    if (!job?.id || !binding?.policyHash || !binding.teeHash) return null;
+    try {
+      return recomputeActionHash({
+        chainId: binding.chainId ?? data?.chainId ?? 16661,
+        jobId: job.id,
+        wallet: job.wallet,
+        vault: job.vault,
+        brief: job.brief,
+        policyHash: binding.policyHash as `0x${string}`,
+        quoteHash: job.quote?.quoteHash ?? binding.quoteHash,
+        teeHash: binding.teeHash as `0x${string}`,
+        storageRoot: job.storageRoot,
+        lockTx: job.lockTx,
+        settleTx: job.releaseTx || job.refundTx,
+        receiptTx: job.receiptTx,
+        nonce: binding.nonce ?? "0",
+        deadline: binding.deadline ?? "0",
+      });
+    } catch {
+      return null;
+    }
+  }, [job, binding, data?.chainId]);
+  const actionMatch =
+    browserAction && binding?.actionHash
+      ? browserAction.toLowerCase() === binding.actionHash.toLowerCase()
+      : null;
 
   async function copyReceipt() {
     const payload = {
@@ -295,6 +378,74 @@ export function VerifyPage() {
                   release / refund.
                 </p>
               )}
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Request
+              </p>
+              <dl className="mt-4 grid gap-3 text-sm">
+                <Meta label="Brief" value={job?.brief} />
+                <Meta label="Model" value={job?.quote?.modelId} />
+                <Meta label="Quoted lock" value={job?.quote?.lock0gDisplay} />
+                <HashRow label="Wallet" value={job?.wallet} href={job?.wallet ? explorerAddress(job.wallet) : undefined} />
+                <HashRow label="Safe" value={job?.vault} href={job?.vault ? explorerAddress(job.vault) : undefined} />
+              </dl>
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Action
+              </p>
+              <p className="mt-2 text-sm" style={{ color: MUTED }}>
+                keccak256(abi.encode) of request, policy, TEE, storage, and settlement. Empty fields bind as zero.
+              </p>
+              <dl className="mt-4 grid gap-4 text-sm">
+                <HashRow label="Action hash" value={binding?.actionHash} />
+                <HashRow label="Browser keccak" value={browserAction} />
+                <Meta
+                  label="Browser vs API"
+                  value={actionMatch == null ? "nothing to compare" : actionMatch ? "match" : "mismatch"}
+                  tone={actionMatch ? "ok" : actionMatch === false ? "fail" : undefined}
+                />
+                <HashRow label="Brief hash" value={binding?.briefHash} />
+                <HashRow label="Policy hash" value={binding?.policyHash} />
+                <HashRow label="TEE hash" value={binding?.teeHash} />
+              </dl>
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Policy · Preflight · Guards
+              </p>
+              <dl className="mt-4 grid gap-3 text-sm">
+                <Meta
+                  label="Preflight"
+                  value={
+                    job?.preflight?.verdict
+                      ? `${job.preflight.verdict} · ${job.preflight.reason}`
+                      : "This job did not send vault calls."
+                  }
+                />
+                <Meta label="Risk" value={job?.risk ? `${job.risk.tier} · ${job.risk.reason}` : undefined} />
+                <Meta
+                  label="Guards"
+                  value={
+                    job?.guards
+                      ? `${job.guards.mode} · ${job.guards.allow ? "ALLOW" : "DENY"} · ${job.guards.reason}`
+                      : undefined
+                  }
+                  tone={job?.guards?.allow ? "ok" : job?.guards ? "fail" : undefined}
+                />
+                {(job?.guards?.votes ?? []).map((vote) => (
+                  <Meta
+                    key={vote.name}
+                    label={vote.name}
+                    value={`${vote.allow ? "ALLOW" : "DENY"} · ${vote.reason}`}
+                    tone={vote.allow ? "ok" : "fail"}
+                  />
+                ))}
+              </dl>
             </section>
 
             <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
@@ -605,6 +756,19 @@ export function VerifyPage() {
                   />
                 )}
                 <HashRow label="Storage root" value={storageRoot} href={storageHref ?? undefined} />
+                <HashRow
+                  label="Batch root"
+                  value={job?.evidenceAnchor?.root ?? data?.evidenceAnchor?.root}
+                />
+                <HashRow
+                  label="Batch anchor tx"
+                  value={job?.evidenceAnchor?.tx ?? data?.evidenceAnchor?.tx}
+                  href={
+                    (job?.evidenceAnchor?.tx ?? data?.evidenceAnchor?.tx)
+                      ? explorerTx(job?.evidenceAnchor?.tx ?? data?.evidenceAnchor?.tx ?? "")
+                      : undefined
+                  }
+                />
                 <HashRow
                   label="TEE signer"
                   value={onchain?.teeSigner}

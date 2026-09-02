@@ -99,7 +99,9 @@ export const envSchema = z.object({
   BEACON_VAULT_FACTORY: optionalString,
   BEACON_JOB_ESCROW: optionalString,
   BEACON_RECEIPT_REGISTRY: optionalString,
+  BEACON_EVIDENCE_ANCHOR: z.string().default("0xB94934f848A13Ae5E7fC5B2a91E61EDFaEc4ca6B"),
   BEACON_TREASURY: optionalString,
+  BEACON_GUARD_MODE: z.string().default("ANY-REJECT"),
 });
 
 export type BeaconEnv = z.infer<typeof envSchema>;

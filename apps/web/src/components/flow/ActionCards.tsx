@@ -146,6 +146,7 @@ export function ActionCard({
   );
   const [approveHash, setApproveHash] = useState<string | null>(() => savedExec?.approveHash ?? null);
   const [swapHash, setSwapHash] = useState<string | null>(() => savedExec?.swapHash ?? null);
+  const [riskAck, setRiskAck] = useState(false);
   const [sendStatus, setSendStatus] = useState<"idle" | "pending" | "confirmed" | "failed">(
     () => savedExec?.sendStatus ?? "idle",
   );
@@ -1028,6 +1029,28 @@ export function ActionCard({
         </dl>
         <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.warning)}</p>
         {card.honesty ? <p className="mt-1 text-xs text-amber-200/90">{String(card.honesty)}</p> : null}
+        {card.riskTier ? (
+          <div
+            className={
+              card.riskTier === "BLOCK"
+                ? "mt-3 rounded-xl border border-[var(--p-danger)]/40 bg-[var(--p-danger)]/10 px-3 py-2"
+                : card.riskTier === "CONFIRM"
+                  ? "mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2"
+                  : "mt-3 rounded-xl border border-signal/30 bg-signal/10 px-3 py-2"
+            }
+          >
+            <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-fg)]">
+              Risk {String(card.riskTier)}
+            </p>
+            <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.riskReason ?? "")}</p>
+            {card.needsHuman === true && card.riskTier === "CONFIRM" ? (
+              <label className="mt-2 flex items-center gap-2 text-xs text-[var(--p-fg)]">
+                <input type="checkbox" checked={riskAck} onChange={(e) => setRiskAck(e.target.checked)} />
+                I confirm this is an intended Safe spend
+              </label>
+            ) : null}
+          </div>
+        ) : null}
         {!canExecute && card.executeBlock ? (
           <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.executeBlock)}</p>
         ) : null}
@@ -1060,10 +1083,10 @@ export function ActionCard({
               Connect wallet
             </button>
           )}
-          {wallet && swapStatus !== "confirmed" && canExecute && (
+          {wallet && swapStatus !== "confirmed" && canExecute && card.riskTier !== "BLOCK" && (
             <button
               type="button"
-              disabled={busy || quoteStale}
+                  disabled={busy || quoteStale || (card.needsHuman === true && !riskAck)}
               onClick={() => {
                 void (async () => {
                   setBusy(true);
@@ -1415,6 +1438,12 @@ export function ActionCard({
         {typeof card.savings0g === "string" && card.savings0g && (
           <p className="mt-2 font-mono text-[11px] text-[var(--p-accent-text)]">Saves {card.savings0g} vs last chat job</p>
         )}
+        {typeof card.alternativeModel === "string" && card.alternativeModel ? (
+          <p className="mt-2 text-xs text-[var(--p-muted)]">
+            Next live option {card.alternativeModel}
+            {typeof card.alternativeLock === "string" ? ` · ${card.alternativeLock}` : ""}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -1686,6 +1715,46 @@ export function ActionCard({
             </a>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  if (card.type === "memory") {
+    const citations = Array.isArray(card.citations)
+      ? (card.citations as Array<{
+          kind?: string;
+          title?: string;
+          verify?: string | null;
+          explorer?: string | null;
+          storageRoot?: string | null;
+        }>)
+      : [];
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          Evidence memory
+        </p>
+        <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.summary ?? card.title ?? "")}</p>
+        <ul className="mt-3 space-y-2 text-sm">
+          {citations.map((row, i) => (
+            <li key={`${row.title}-${i}`} className="rounded-xl bg-[var(--p-surface-2)] px-3 py-2">
+              <p className="text-[var(--p-fg)]">{row.title}</p>
+              <div className="mt-1 flex flex-wrap gap-2 font-mono text-[11px]">
+                {row.verify ? (
+                  <Link className="text-[var(--p-accent-text)] underline-offset-2 hover:underline" to={row.verify}>
+                    Verify
+                  </Link>
+                ) : null}
+                {row.explorer ? (
+                  <a className="text-[var(--p-accent-text)] underline-offset-2 hover:underline" href={row.explorer} target="_blank" rel="noreferrer">
+                    Explorer
+                  </a>
+                ) : null}
+                {row.storageRoot ? <span className="break-all text-[var(--p-muted)]">{row.storageRoot.slice(0, 18)}…</span> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }

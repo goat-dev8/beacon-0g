@@ -135,4 +135,15 @@ describe("preflightVaultCalls", () => {
     expect(d.verdict).toBe("DENY");
     expect(d.reason).toMatch(/minOut/i);
   });
+
+  it("DENYs a failed chain simulation even when the envelope is well-formed", () => {
+    const d = preflightVaultCalls({
+      ...base,
+      calls: [wrapCall, approveCall, swapCall],
+      simulationOk: false,
+      simulationDetail: "eth_call reverted: insufficient wealth",
+    });
+    expect(d.verdict).toBe("DENY");
+    expect(d.reason).toMatch(/simulation/);
+  });
 });

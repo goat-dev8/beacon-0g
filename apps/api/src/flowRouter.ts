@@ -21,6 +21,7 @@ export type FlowKind =
   | "image_job"
   | "research_job"
   | "analysis_job"
+  | "memory_recall"
   | "unknown";
 
 export type FlowClassification = {
@@ -88,6 +89,9 @@ export function classifyFlowIntent(raw: string): FlowClassification {
   }
   if (/what did i spend|show what the last job cost|spend(ing)? summary|cost today|how much did i spend/.test(text)) {
     return { lane: "inline", kind: "spend" };
+  }
+  if (/what did i do|last week|my (jobs|history|memory)|what have i (done|run)/.test(text)) {
+    return { lane: "inline", kind: "memory_recall" };
   }
   if (/\bswap\b|\bconvert\b|usdc\.?e|wbtc|st0g/.test(text) && /\d/.test(text)) {
     return { lane: "transaction", kind: "swap_quote" };

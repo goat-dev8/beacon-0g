@@ -76,6 +76,8 @@ export function preflightVaultCalls(input: {
   nowSeconds?: number;
   seenNonces?: Iterable<string>;
   nonce?: bigint | string | number;
+  simulationOk?: boolean;
+  simulationDetail?: string;
 }): PreflightDecision {
   const checks: PreflightCheck[] = [];
   const allowedTargets = new Set(input.allowedTargets.map(normAddr));
@@ -141,6 +143,15 @@ export function preflightVaultCalls(input: {
       add(checks, `swap-target:${i}`, target === router, "swap must target the Zia router");
       add(checks, `destination:${i}`, paddedAddressInData(call.data, safe), "swap recipient must be the Beacon Safe");
     }
+  }
+
+  if (input.simulationOk !== undefined) {
+    add(
+      checks,
+      "simulation",
+      input.simulationOk,
+      input.simulationDetail ?? (input.simulationOk ? "eth_call succeeded" : "eth_call reverted"),
+    );
   }
 
   const failed = checks.filter((c) => !c.ok);

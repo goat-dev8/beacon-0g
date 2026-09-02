@@ -20,12 +20,22 @@ import {
   transition,
   ERC8004_AGENT_ID,
 } from "@beacon/shared";
-import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } from "@beacon/quote";
+import { fetchCatalog, quoteJob, selectModel, listCheapChatOptions, type JobQuote, type ModelTask } from "@beacon/quote";
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, extractRouterTrace, hashRouterTraceClaim, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
 import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, findPoolFee, getPoolAtFee, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
-import { preflightVaultCalls } from "@beacon/execution";
+import {
+  preflightVaultCalls,
+  bindAction,
+  classifyRisk,
+  aggregateGuards,
+  type ActionBinding,
+  type RiskDecision,
+  type GuardMode,
+  type GuardReport,
+  type PreflightDecision,
+} from "@beacon/execution";
 import {
   createSafeSessionChallenge,
   verifyChallengeAndIssueSession,
@@ -50,6 +60,10 @@ import { registerMcpRoutes } from "./mcpRoutes.js";
 import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
 import { classifyFlowIntent, wantsPaidExplanation } from "./flowRouter.js";
 import { parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
+import { recallEvidence } from "./evidenceMemory.js";
+import { simulateVaultCalls } from "./simulateVault.js";
+import { compositionForJob } from "./jobComposition.js";
+import { buildBatch } from "./evidenceBatch.js";
 import {
   cheaperSavingsWei,
   collectSpendHashes,
@@ -106,6 +120,11 @@ const ESCROW_ABI = new Interface([
 const RECEIPT_ABI = new Interface([
   "function record(bytes32 jobId, bytes32 storageRoot, address teeSigner, bytes32 chatIdHash, bytes32 quoteHash, bool allowed)",
   "function receipts(bytes32) view returns (bytes32 storageRoot, address teeSigner, bytes32 chatIdHash, bytes32 quoteHash, bool allowed, bool exists, uint256 recordedAt, address recorder)",
+]);
+const ANCHOR_ABI = new Interface([
+  "function anchor(bytes32 root, uint32 leafCount)",
+  "function batches(bytes32) view returns (bool exists, uint256 recordedAt, address recorder, uint32 leafCount)",
+  "function latestRoot() view returns (bytes32)",
 ]);
 const FACTORY_ABI = new Interface([
   "function createSafe() returns (address)",
@@ -168,8 +187,141 @@ type StoredJob = {
     teeVerified: boolean | null;
     claimHash: string | null;
   } | null;
+  actionProof?: ActionBinding;
+  preflight?: PreflightDecision;
+  risk?: RiskDecision;
+  guards?: GuardReport;
+  composition?: ReturnType<typeof compositionForJob>;
+  evidenceAnchor?: {
+    root: string;
+    tx: string;
+    leafCount: number;
+    proof: { leaf: string; index: number; siblings: string[]; root: string };
+  } | null;
   events: Array<{ type: string; payload: unknown; ts: string }>;
 };
+
+function jobPolicySnapshot(job: StoredJob) {
+  return {
+    chainId: env.CHAIN_ID,
+    vault: job.vault,
+    escrow: env.BEACON_JOB_ESCROW || null,
+    lock0g: job.quote.lock0g.toString(),
+    modelId: job.quote.modelId,
+    task: job.task,
+    serviceId: job.serviceId ?? null,
+  };
+}
+
+function bindJobAction(job: StoredJob): ActionBinding {
+  const deadline = Math.floor(new Date(job.quote.expiresAt).getTime() / 1000);
+  const nonce = BigInt("0x" + job.id.replace(/-/g, "").slice(0, 16));
+  return bindAction({
+    chainId: env.CHAIN_ID,
+    jobId: job.id,
+    wallet: job.wallet,
+    vault: job.vault,
+    brief: job.brief,
+    policy: jobPolicySnapshot(job),
+    quoteHash: job.quote.quoteHash,
+    tee: job.tee
+      ? {
+          allow: job.tee.allow,
+          reason: job.tee.reason,
+          chatId: job.tee.chatId,
+          recoveredSigner: job.tee.recoveredSigner,
+        }
+      : null,
+    storageRoot: job.storageRoot,
+    lockTx: job.lockTx,
+    settleTx: job.releaseTx || job.refundTx,
+    receiptTx: job.receiptTx,
+    nonce,
+    deadline: Number.isFinite(deadline) ? deadline : 0,
+  });
+}
+
+function guardsForJob(job: StoredJob): GuardReport {
+  const mode = (env.BEACON_GUARD_MODE || "ANY-REJECT").toUpperCase() as GuardMode;
+  const safeMode: GuardMode = mode === "UNANIMOUS" || mode === "MAJORITY" ? mode : "ANY-REJECT";
+  return aggregateGuards(
+    [
+      {
+        name: "firewall",
+        allow: !job.denial,
+        reason: job.denial ?? "No hard denial recorded.",
+        kind: "hard",
+      },
+      {
+        name: "teeml",
+        allow: job.tee?.allow === true,
+        reason: job.tee?.reason ?? "TeeML not yet recorded.",
+        kind: "model",
+      },
+    ],
+    safeMode,
+  );
+}
+
+const pendingAnchorLeaves: Array<{ jobId: string; actionHash: string }> = [];
+let anchorFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function queueEvidenceAnchor(job: StoredJob): Promise<void> {
+  if (!job.actionProof?.actionHash) return;
+  if (pendingAnchorLeaves.some((l) => l.jobId === job.id)) return;
+  pendingAnchorLeaves.push({ jobId: job.id, actionHash: job.actionProof.actionHash });
+  if (anchorFlushTimer) clearTimeout(anchorFlushTimer);
+  anchorFlushTimer = setTimeout(() => {
+    void flushEvidenceAnchor();
+  }, 8_000);
+}
+
+async function flushEvidenceAnchor(): Promise<void> {
+  if (!env.BEACON_EVIDENCE_ANCHOR || !settler || pendingAnchorLeaves.length === 0) return;
+  const leaves = pendingAnchorLeaves.splice(0, pendingAnchorLeaves.length);
+  try {
+    const batch = buildBatch(leaves);
+    const tx = await sendSettlerTx({
+      to: env.BEACON_EVIDENCE_ANCHOR,
+      data: ANCHOR_ABI.encodeFunctionData("anchor", [batch.root, leaves.length]),
+    });
+    await waitSettlerTx(tx);
+    for (const leaf of leaves) {
+      const job = await getJob(leaf.jobId);
+      if (!job) continue;
+      const proof = batch.proofs[leaf.jobId];
+      if (!proof) continue;
+      job.evidenceAnchor = {
+        root: batch.root,
+        tx: tx.hash,
+        leafCount: leaves.length,
+        proof,
+      };
+      emitEvent(job, "anchored", { root: batch.root, tx: tx.hash, leafCount: leaves.length });
+      await persistJob(job);
+    }
+  } catch (err) {
+    pendingAnchorLeaves.unshift(...leaves);
+    console.warn("evidence anchor flush failed", err instanceof Error ? err.message : err);
+  }
+}
+
+async function finalizeJobProof(job: StoredJob): Promise<void> {
+  job.actionProof = bindJobAction(job);
+  job.guards = guardsForJob(job);
+  job.composition = compositionForJob({
+    serviceId: job.serviceId,
+    status: job.status,
+    lockTx: job.lockTx,
+    teeAllow: job.tee?.allow,
+    denial: job.denial,
+    storageRoot: job.storageRoot,
+    settleTx: job.releaseTx || job.refundTx,
+    receiptTx: job.receiptTx,
+  });
+  await persistJob(job);
+  if (job.releaseTx || job.refundTx) await queueEvidenceAnchor(job);
+}
 
 const jobs = new Map<string, StoredJob>();
 const quotes = new Map<string, JobQuote>();
@@ -291,6 +443,20 @@ async function preflightSafeSwap(input: {
     };
   }
   const built = buildSwapTx(quote, safe, { nonce: 0n, wrapNative: quote.wrapNative, deadlineSeconds: 1200 });
+  const [executor] = await vaultView(safe, "executor");
+  const sim = await simulateVaultCalls({
+    call: (tx) => provider.call(tx),
+    vaultAbi: VAULT_ABI,
+    safe,
+    executor: String(executor),
+    calls: built.calls.map((c) => ({
+      target: c.target,
+      data: c.data,
+      value: typeof c.value === "bigint" ? c.value : BigInt(c.value ?? 0),
+      maxSpend: typeof c.maxSpend === "bigint" ? c.maxSpend : BigInt(c.maxSpend ?? 0),
+    })),
+    nonce: BigInt(Date.now()),
+  });
   const decision = preflightVaultCalls({
     calls: built.calls,
     safe,
@@ -301,9 +467,20 @@ async function preflightSafeSwap(input: {
     router: env.ZIA_ROUTER,
     quotedMinOut: quote.minOut,
     deadlineSeconds: Math.floor(Date.now() / 1000) + 1200,
+    simulationOk: sim.ok,
+    simulationDetail: sim.detail,
+  });
+  const risk = classifyRisk({
+    amountWei: amountIn,
+    knownPair: true,
+    knownTarget: true,
+    knownSelector: true,
+    impactBps: quote.impactBps,
+    paused: Boolean(paused),
   });
   return {
     ...decision,
+    risk,
     quote: {
       tokenIn: quote.tokenInSymbol,
       tokenOut: quote.tokenOutSymbol,
@@ -410,6 +587,8 @@ function serializeJob(job: StoredJob) {
     status: job.status,
     task: job.task,
     brief: job.brief,
+    wallet: job.wallet,
+    vault: job.vault,
     quote: serializeQuote(job.quote),
     tee: job.tee
       ? {
@@ -447,6 +626,21 @@ function serializeJob(job: StoredJob) {
       refund: job.refundTx ? explorerTx(job.refundTx) : null,
       feedback: job.feedbackTx ? explorerTx(job.feedbackTx) : null,
     },
+    actionProof: job.actionProof ?? null,
+    preflight: job.preflight ?? null,
+    risk: job.risk ?? null,
+    guards: job.guards ?? null,
+    composition: job.composition ?? compositionForJob({
+      serviceId: job.serviceId,
+      status: job.status,
+      lockTx: job.lockTx,
+      teeAllow: job.tee?.allow,
+      denial: job.denial,
+      storageRoot: job.storageRoot,
+      settleTx: job.releaseTx || job.refundTx,
+      receiptTx: job.receiptTx,
+    }),
+    evidenceAnchor: job.evidenceAnchor ?? null,
   };
 }
 
@@ -470,6 +664,28 @@ function agentRegistrationFile() {
     ],
     x402Support: false,
     active: true,
+    chainId: env.CHAIN_ID,
+    paymentUnit: "native 0G",
+    proof: {
+      mechanism: "action-hash + receipt registry + 0G Storage",
+      verify: `${web}/verify/:id`,
+      receipts: env.BEACON_RECEIPT_REGISTRY || null,
+      evidenceAnchor: env.BEACON_EVIDENCE_ANCHOR || null,
+    },
+    capabilities: BEACON_CAPABILITIES.filter((c) => (c.name !== "video" ? true : env.ENABLE_VIDEO)).map((c) => c.name),
+    mcpTools: [
+      "get_safe",
+      "get_policy",
+      "get_spend",
+      "infer",
+      "swap",
+      "preflight_tx",
+      "inspect",
+      "bridge",
+      "track_bridge",
+      "verify_job",
+    ],
+    executionScope: "Beacon Safe executor only. The agent never receives a private key.",
     registrations: [
       {
         agentId: Number(ERC8004_AGENT_ID),
@@ -615,10 +831,14 @@ async function createQuotedJob(input: {
     });
   quotes.set(quote.quoteId, quote);
   const wallet = input.wallet ? getAddress(input.wallet) : "0x0000000000000000000000000000000000000000";
+  const resolvedVault =
+    input.vault ? getAddress(input.vault) : wallet !== "0x0000000000000000000000000000000000000000"
+      ? await resolveSafe(wallet)
+      : null;
   const job: StoredJob = {
     id: newId(),
     wallet,
-    vault: input.vault ? getAddress(input.vault) : null,
+    vault: resolvedVault,
     task: input.task,
     brief: input.brief,
     status: JobStatus.QUOTED,
@@ -1174,10 +1394,23 @@ async function runLockedJob(job: StoredJob): Promise<StoredJob> {
       JSON.stringify({
         jobId: job.id,
         model: job.quote.modelId,
+        provider: job.quote.providerAddress,
+        verifiability: job.quote.verifiability,
+        catalogHash: job.quote.catalogHash,
         quoteHash: job.quote.quoteHash,
         briefHash: keccak256(toUtf8Bytes(job.brief)),
         result: job.resultText?.slice(0, 4000),
+        resultSha256: job.resultText ? sha256Utf8(job.resultText) : null,
         lockTx: job.lockTx,
+        tee: job.tee
+          ? {
+              allow: job.tee.allow,
+              reason: job.tee.reason,
+              chatId: job.tee.chatId,
+              recoveredSigner: job.tee.recoveredSigner,
+            }
+          : null,
+        actionCommit: bindJobAction(job),
       }),
       "utf8",
     );
@@ -1245,6 +1478,7 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
   job.status = JobStatus.CLOSED;
   emitEvent(job, "released", { tx: job.releaseTx, receiptTx: job.receiptTx });
   await recordJobFeedback(job);
+  await finalizeJobProof(job);
   await persistJob(job);
   return deskView(job);
 }
@@ -1286,6 +1520,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
           emitEvent(job, "refunded", { tx: job.refundTx });
           await recordJobFeedback(job);
         }
+        await finalizeJobProof(job);
         await persistJob(job);
         return;
       }
@@ -1315,6 +1550,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
       /* refund best-effort */
     }
   } finally {
+    await finalizeJobProof(job);
     await persistJob(job);
   }
 }
@@ -1343,6 +1579,7 @@ app.post("/v1/jobs/:id/refund", async (req) => {
   job.status = JobStatus.CLOSED;
   emitEvent(job, "refunded", { tx: job.refundTx });
   await recordJobFeedback(job);
+  await finalizeJobProof(job);
   return deskView(job);
 });
 
@@ -1457,6 +1694,24 @@ app.get("/v1/verify/:id", async (req) => {
             receipt: job.receiptTx ? explorerTx(job.receiptTx) : null,
             feedback: job.feedbackTx ? explorerTx(job.feedbackTx) : null,
           },
+        }
+      : null,
+    action: job
+      ? {
+          actionHash: job.actionProof?.actionHash ?? bindJobAction(job).actionHash,
+          binding: job.actionProof ?? bindJobAction(job),
+          policy: jobPolicySnapshot(job),
+          preflight: job.preflight ?? null,
+          risk: job.risk ?? null,
+          guards: job.guards ?? guardsForJob(job),
+          composition: job.composition ?? null,
+        }
+      : null,
+    evidenceAnchor: job
+      ? {
+          configured: Boolean(env.BEACON_EVIDENCE_ANCHOR),
+          address: env.BEACON_EVIDENCE_ANCHOR || null,
+          ...(job.evidenceAnchor ?? {}),
         }
       : null,
     related,
@@ -1801,6 +2056,21 @@ async function runSafeZiaSwap(input: {
   const built = buildSwapTx(quote, safe, { nonce: 0n, wrapNative: quote.wrapNative, deadlineSeconds: 1200 });
   const [paused] = await vaultView(safe, "paused");
   const [maxSpend] = await vaultView(safe, "maxSpendPerTx");
+  const [executor] = await vaultView(safe, "executor");
+  const simNonce = BigInt(Date.now());
+  const sim = await simulateVaultCalls({
+    call: (tx) => provider.call(tx),
+    vaultAbi: VAULT_ABI,
+    safe,
+    executor: String(executor),
+    calls: built.calls.map((c) => ({
+      target: c.target,
+      data: c.data,
+      value: typeof c.value === "bigint" ? c.value : BigInt(c.value ?? 0),
+      maxSpend: typeof c.maxSpend === "bigint" ? c.maxSpend : BigInt(c.maxSpend ?? 0),
+    })),
+    nonce: simNonce,
+  });
   const decision = preflightVaultCalls({
     calls: built.calls,
     safe,
@@ -1811,9 +2081,22 @@ async function runSafeZiaSwap(input: {
     router: env.ZIA_ROUTER,
     quotedMinOut: quote.minOut,
     deadlineSeconds: Math.floor(Date.now() / 1000) + 1200,
+    simulationOk: sim.ok,
+    simulationDetail: sim.detail,
   });
   if (decision.verdict === "DENY") {
     throw new AppError("TEE_DENIED", { message: `Preflight DENY: ${decision.reason}` });
+  }
+  const risk = classifyRisk({
+    amountWei: amountIn,
+    knownPair: true,
+    knownTarget: true,
+    knownSelector: true,
+    impactBps: quote.impactBps,
+    paused: Boolean(paused),
+  });
+  if (risk.tier === "BLOCK") {
+    throw new AppError("TEE_DENIED", { message: `Risk BLOCK: ${risk.reason}` });
   }
   const hashes: string[] = [];
   let nonce = BigInt(Date.now());
@@ -2139,6 +2422,42 @@ app.post("/v1/flow/chat", async (req) => {
           semantic: "The request is an unconstrained transfer, not a Beacon job.",
           requested: "5 0G",
           fundsMoved: "0 0G",
+        },
+      ],
+    };
+  }
+  if (classified.kind === "memory_recall" || /what did i do|last week|my (jobs|history|memory)/.test(text)) {
+    if (!body.wallet) {
+      return { reply: "Connect a wallet to recall evidence-backed history. Beacon will not invent a memory.", cards: [] };
+    }
+    const jobsForWallet = await listJobsForWallet(body.wallet);
+    const activity = history ? await history.listActivity(getAddress(body.wallet)) : [];
+    const memory = recallEvidence({
+      question: body.text,
+      jobs: jobsForWallet.map((j) => ({
+        id: j.id,
+        status: j.status,
+        createdAt: j.createdAt,
+        brief: j.brief,
+        storageRoot: j.storageRoot,
+        lockTx: j.lockTx,
+        releaseTx: j.releaseTx,
+        refundTx: j.refundTx,
+        receiptTx: j.receiptTx,
+        quote: { modelId: j.quote.modelId, lock0gDisplay: format0g(j.quote.lock0g) },
+      })),
+      activity,
+    });
+    return {
+      reply: memory.answer,
+      cards: [
+        {
+          type: "memory",
+          title: "Evidence memory",
+          summary: memory.answer,
+          citations: memory.citations,
+          windowDays: memory.windowDays,
+          source: memory.source,
         },
       ],
     };
@@ -2486,6 +2805,13 @@ app.post("/v1/flow/chat", async (req) => {
       }
       const quotedAt = new Date().toISOString();
       const quoteExpiresAt = new Date(Date.now() + 90_000).toISOString();
+      const risk = classifyRisk({
+        amountWei: quote.amountIn,
+        knownPair: Boolean(quote.executableFromSafe || quote.amountOut > 0n),
+        knownTarget: true,
+        knownSelector: true,
+        impactBps: quote.impactBps,
+      });
       return {
         reply: quote.executableFromSafe
           ? `Zia quote for ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. Pool fee ${quote.fee}. Impact ${quote.impactBps} bps. Min ${minReceived} ${quote.tokenOutSymbol}.`
@@ -2528,6 +2854,10 @@ app.post("/v1/flow/chat", async (req) => {
               : quote.executeBlock,
             ogPrimitive: "Zia SwapRouter",
             network: "0G Aristotle",
+            riskTier: risk.tier,
+            riskReason: risk.reason,
+            needsHuman: risk.needsHuman,
+            riskFactors: risk.factors,
           },
         ],
       };
@@ -2566,6 +2896,13 @@ app.post("/v1/flow/chat", async (req) => {
         : last?.task === "image"
           ? `Image stays on ${image.modelId} at ${format0g(image.lock0g)}; cheaper applies to chat/research.`
           : `Live cheapest verified chat: ${quote.modelId}.`;
+    const options = listCheapChatOptions(catalog, body.text);
+    const selectedOpt = options.find((o) => o.selected) ?? options[0];
+    const alternative = options.find((o) => !o.selected);
+    const altLine =
+      selectedOpt && alternative
+        ? ` Selected ${selectedOpt.modelId} at ${format0g(selectedOpt.lock0g)}. Next live option ${alternative.modelId} at ${format0g(alternative.lock0g)}.`
+        : "";
     const job = await createQuotedJob({
       wallet: body.wallet,
       task: "cheap",
@@ -2574,7 +2911,7 @@ app.post("/v1/flow/chat", async (req) => {
       serviceId: "research",
     });
     return {
-      reply: `${cheaperThanLast} ${lastLine} Compute ${format0g(quote.modelCost0g)} · Storage ${format0g(quote.storage0g)} · Beacon fee ${format0g(quote.service0g)} · Total ${format0g(quote.lock0g)}.`,
+      reply: `${cheaperThanLast}${altLine} ${lastLine} Compute ${format0g(quote.modelCost0g)} · Storage ${format0g(quote.storage0g)} · Beacon fee ${format0g(quote.service0g)} · Total ${format0g(quote.lock0g)}.`,
       quote: serializeQuote(quote),
       cards: [
         {
@@ -2583,6 +2920,15 @@ app.post("/v1/flow/chat", async (req) => {
           title: "Cheap catalog quote",
           summary: `${quote.modelId} · ${quote.verifiability} · ${format0g(quote.lock0g)}${savingsWei > 0n ? ` · saves ${format0g(savingsWei)}` : ""}`,
           savings0g: savingsWei > 0n ? format0g(savingsWei) : null,
+          selectedModel: quote.modelId,
+          alternativeModel: alternative?.modelId ?? null,
+          alternativeLock: alternative ? format0g(alternative.lock0g) : null,
+          options: options.map((o) => ({
+            modelId: o.modelId,
+            verifiability: o.verifiability,
+            lock0g: format0g(o.lock0g),
+            selected: o.selected,
+          })),
         },
         ...jobStayCards(job, "Start cheaper job", "Escrow native 0G then run Compute. Stay in this chat."),
       ],
