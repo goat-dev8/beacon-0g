@@ -12,10 +12,12 @@ resetEnvCache();
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
 
-const API = (process.env.BEACON_API_URL || env.API_URL || "https://beacon-0g-api.onrender.com").replace(
-  /\/$/,
-  "",
-);
+const hostedApi =
+  process.env.BEACON_API_URL ||
+  (env.API_URL.includes("localhost") || env.API_URL.includes("127.0.0.1")
+    ? "https://beacon-0g-api.onrender.com"
+    : env.API_URL);
+const API = hostedApi.replace(/\/$/, "");
 const WEB = process.env.BEACON_WEB_URL || "https://beacon-0g.vercel.app";
 
 function redact(value: unknown): unknown {

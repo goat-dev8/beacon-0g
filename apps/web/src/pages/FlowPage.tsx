@@ -76,8 +76,10 @@ export function FlowPage() {
     void (async () => {
       try {
         const { conversations } = await api.listFlowConversations(wallet);
-        if (conversations[0]?.id) {
-          await loadConversation(conversations[0].id, wallet);
+        const withMessages = conversations.find((c) => c.last_message);
+        const pick = withMessages ?? conversations[0];
+        if (pick?.id) {
+          await loadConversation(pick.id, wallet);
         }
       } catch {
         /* empty history is fine */
@@ -159,25 +161,13 @@ export function FlowPage() {
   }
 
   async function startNewChat() {
-    if (!wallet) {
-      setConversationId(null);
-      setConvState(null);
-      setSettledServiceIds(new Set());
-      setExecutionStates({});
-      setDismissedExecKey(null);
-      setAgentId("general");
-      setMessages([WELCOME]);
-      return;
-    }
     setAgentId("general");
+    setConversationId(null);
     setConvState(null);
     setSettledServiceIds(new Set());
     setExecutionStates({});
     setDismissedExecKey(null);
     setMessages([WELCOME]);
-    const { conversation } = await api.createFlowConversation(wallet, "New chat", "general");
-    setConversationId(conversation.id);
-    void qc.invalidateQueries({ queryKey: ["flow-conversations", wallet] });
   }
 
   const chat = useMutation({
