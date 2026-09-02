@@ -21,7 +21,7 @@ import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } fr
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
-import { quoteExactIn, buildSwapTx } from "@beacon/swap";
+import { quoteExactIn, buildSwapTx, listSwapAssets, resolveZiaToken } from "@beacon/swap";
 import {
   createSafeSessionChallenge,
   verifyChallengeAndIssueSession,
@@ -30,6 +30,9 @@ import {
 import { serviceIdToTask, webJobRow, webQuoteDto, ZEROG_SERVICES } from "./jobDesk.js";
 import { openFlowHistory, redisClientFromEnv } from "./flowHistory.js";
 import { getDurableJob, getDurableQuote, getLastJobId, putDurableJob, putLastJobId } from "./jobPersist.js";
+import { inspectAddress, inspectTransaction } from "./inspect.js";
+import { BEACON_CAPABILITIES, capabilityCard } from "./capabilities.js";
+import { BRIDGE_CATALOG, bridgeCatalogCard } from "./bridgeCatalog.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -399,6 +402,31 @@ app.get("/v1/models", async () => {
 });
 
 app.get("/v1/services", async () => ({ services: ZEROG_SERVICES }));
+
+app.get("/v1/capabilities", async () => ({
+  ok: true,
+  items: BEACON_CAPABILITIES,
+}));
+
+app.get("/v1/inspect/address/:addr", async (req) => {
+  const addr = String((req.params as { addr: string }).addr);
+  return inspectAddress(provider, addr);
+});
+
+app.get("/v1/inspect/tx/:hash", async (req) => {
+  const hash = String((req.params as { hash: string }).hash);
+  return inspectTransaction(provider, hash);
+});
+
+app.get("/v1/swap/assets", async () => listSwapAssets({ env }));
+
+app.get("/v1/bridge/catalog", async () => ({
+  ok: true,
+  executableFromBeaconSafe: false,
+  routes: BRIDGE_CATALOG,
+  honesty:
+    "Zia documents Stargate, Interport, and PortalBridge. 0G Hub and get.0g.ai are the live acquisition surfaces. Beacon Safe cannot sign a source-chain bridge.",
+}));
 
 app.post("/v1/quote", async (req) => {
   const body = z
@@ -1418,14 +1446,23 @@ app.get("/v1/mcp/health", async () => ({
 
 app.get("/v1/mcp/grants", async () => ({ ok: true, grants: [] }));
 
-app.get("/v1/agents/bridge/routes", async () => {
-  throw new AppError("NO_FIT", { message: "Cross-chain OFT is NOT_AVAILABLE on Beacon 0G P0. Use Zia for 0G→USDC.e." });
-});
+app.get("/v1/agents/bridge/routes", async () => ({
+  ok: true,
+  executableFromBeaconSafe: false,
+  source: "zia-docs+get.0g.ai+hub",
+  routes: BRIDGE_CATALOG,
+}));
 app.get("/v1/agents/bridge/delivery", async () => {
-  throw new AppError("NO_FIT", { message: "Cross-chain OFT is NOT_AVAILABLE on Beacon 0G P0." });
+  throw new AppError("NO_FIT", {
+    message:
+      "Beacon does not mark a bridge complete from a source-chain tx. Track Hub/Stargate/Interport on their own explorers, then confirm the 0G balance.",
+  });
 });
 app.post("/v1/agents/bridge/execute", async () => {
-  throw new AppError("NO_FIT", { message: "Cross-chain OFT is NOT_AVAILABLE on Beacon 0G P0." });
+  throw new AppError("NO_FIT", {
+    message:
+      "Beacon Safe cannot execute a bridge. Sign on the source chain at hub.0g.ai/bridge or the venue in /v1/bridge/catalog.",
+  });
 });
 
 app.post("/v1/swap/quote", async (req) => {
@@ -1438,11 +1475,16 @@ app.post("/v1/swap/quote", async (req) => {
   const quote = await quoteExactIn(parse0g(body.amount0g), {
     tokenOut: body.tokenOut,
   });
+  const named = body.tokenOut ? resolveZiaToken(body.tokenOut) : resolveZiaToken("USDC");
   return {
     amountIn: quote.amountIn.toString(),
     amountOut: quote.amountOut.toString(),
     minOut: quote.minOut.toString(),
     impactBps: quote.impactBps,
+    fee: quote.fee,
+    tokenIn: quote.tokenIn,
+    tokenOut: quote.tokenOut,
+    tokenOutSymbol: named?.symbol ?? "USDC",
     router: quote.router,
     path: quote.path,
   };
@@ -1510,17 +1552,71 @@ app.post("/v1/flow/chat", async (req) => {
       ],
     };
   }
-  if (/swap|convert|usdc/.test(text)) {
+  if (/what can (beacon|you) do|capabilities|what can i do/.test(text)) {
+    return {
+      reply:
+        "Beacon only exposes tools that are live: inspect, jobs, Zia swaps with a factory pool, documented bridges (not Safe-executable), policy, and proof.",
+      cards: [capabilityCard()],
+    };
+  }
+  if (/what can i swap|swap assets|what assets can i swap|what tokens can i swap/.test(text)) {
+    const listed = await listSwapAssets({ env });
+    const live = listed.routes.filter((r) => r.from.symbol === "0G");
+    return {
+      reply: live.length
+        ? `Live Zia routes (factory pool + quoter amountOut > 0): ${live.map((r) => `0G → ${r.to.symbol} @ ${r.fee}`).join("; ")}.`
+        : "Beacon cannot verify a viable Zia route for this pair.",
+      cards: [
+        {
+          type: "swap_assets",
+          title: "Zia swap assets",
+          summary: listed.source,
+          routes: live,
+          asOf: listed.asOf,
+        },
+      ],
+    };
+  }
+  if (/\bbridge\b/.test(text)) {
+    return {
+      reply:
+        "Beacon cannot execute a bridge from the Aristotle Safe. Sign on the source chain. Zia documents Stargate, Interport, and PortalBridge; 0G Hub and get.0g.ai are live.",
+      cards: [bridgeCatalogCard()],
+    };
+  }
+  const txHash = body.text.match(/0x[a-fA-F0-9]{64}/)?.[0];
+  const inspectAddr = body.text.match(/0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/)?.[0];
+  if (txHash && /inspect|analyze|explain|transaction|\btx\b/.test(text)) {
+    const info = await inspectTransaction(provider, txHash);
+    return {
+      reply: `Transaction ${info.status} on Aristotle ${info.chainId}. Explorer is the source of truth; Beacon does not invent decoded logs.`,
+      cards: [{ type: "inspect_result", title: "Transaction", inspect: info }],
+    };
+  }
+  if (inspectAddr && /inspect|analyze|explain|contract|wallet|address/.test(text)) {
+    const info = await inspectAddress(provider, inspectAddr);
+    return {
+      reply: info.isContract
+        ? `Contract ${info.address}. ${info.bytecodeBytes} bytecode bytes. Source is not verified in Beacon. ${info.risks[0] ?? ""}`
+        : `Wallet ${info.address}. Native 0G from live RPC. Beacon does not claim complete token history.`,
+      cards: [{ type: "inspect_result", title: info.isContract ? "Contract" : "Wallet", inspect: info }],
+    };
+  }
+  if (/swap|convert|usdc|wbtc|st0g/.test(text)) {
     const m = text.match(/([\d.]+)\s*0g/);
     const amount = m?.[1] ?? "0.2";
+    const outWord =
+      text.match(/\bto\s+(usdc\.e|usdc|wbtc|st0g|w0g|usdt|link|sol|cbbtc|wsteth)\b/i)?.[1] ?? "USDC";
+    const named = resolveZiaToken(outWord) ?? resolveZiaToken("USDC");
     try {
-      const quote = await quoteExactIn(parse0g(amount));
-      const out = Number(quote.amountOut) / 1e6;
+      const quote = await quoteExactIn(parse0g(amount), { tokenOut: outWord });
+      const decimals = named?.docsDecimals ?? 6;
+      const out = Number(quote.amountOut) / 10 ** decimals;
       const estimatedOut = Number.isFinite(out)
-        ? out.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")
+        ? out.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")
         : quote.amountOut.toString();
       return {
-        reply: `Zia quote for ${amount} 0G → USDC. Beacon will wrap to W0G, approve the Zia router, then exactInputSingle. Recipient is your Beacon Safe.`,
+        reply: `Zia quote for ${amount} 0G → ${named?.symbol ?? "USDC"}. Beacon will wrap to W0G, approve the Zia router, then exactInputSingle. Recipient is your Beacon Safe.`,
         quote: {
           amountOut: quote.amountOut.toString(),
           minOut: quote.minOut.toString(),
@@ -1536,7 +1632,7 @@ app.post("/v1/flow/chat", async (req) => {
             amountInDisplay: amount,
             estimatedOut,
             symbolIn: "0G",
-            symbolOut: "USDC",
+            symbolOut: named?.symbol ?? "USDC",
             chainId: env.CHAIN_ID,
             slippageBps: 100,
             warning: "Unlock Beacon Agent if the session is locked. Thin books are refused before funds move.",
@@ -1551,13 +1647,13 @@ app.post("/v1/flow/chat", async (req) => {
       return {
         reply: isAppError(err)
           ? err.userMessage
-          : "Beacon refused this swap because verified liquidity is insufficient.",
+          : "Beacon cannot verify a viable Zia route for this pair.",
         status: "REFUSED",
         cards: [
           {
             type: "denied",
             title: "Swap refused",
-            reason: isAppError(err) ? err.userMessage : "Verified liquidity is insufficient.",
+            reason: isAppError(err) ? err.userMessage : "Beacon cannot verify a viable Zia route for this pair.",
           },
         ],
       };

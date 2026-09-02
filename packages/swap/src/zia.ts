@@ -19,6 +19,7 @@ import {
   type BeaconEnv,
 } from "@beacon/shared";
 import { w0gUsdcePath } from "./path.js";
+import { resolveZiaToken } from "./tokens.js";
 
 const THIN_LIQUIDITY =
   "Beacon refused this swap because verified liquidity is insufficient.";
@@ -80,7 +81,14 @@ function resolveUsdce(env: BeaconEnv): string {
         "ZEROG_USDCE is required at swap time (Zia token list / CCIP Bridged USDC). Set env ZEROG_USDCE.",
     });
   }
-  return getAddress(raw);
+  return getAddress(raw.toLowerCase());
+}
+
+function resolveOutToken(env: BeaconEnv, tokenOut?: string): string {
+  if (!tokenOut) return resolveUsdce(env);
+  const named = resolveZiaToken(tokenOut);
+  if (named) return getAddress(named.address);
+  return getAddress(tokenOut.toLowerCase());
 }
 
 function decodeAmountOut(raw: string): bigint {
@@ -125,8 +133,8 @@ export async function quoteExactIn(
     throw new AppError("VALIDATION", { message: "amountIn must be > 0." });
   }
 
-  const w0g = getAddress(env.ZEROG_W0G || ZEROG_W0G);
-  const usdce = getAddress(opts.tokenOut ?? resolveUsdce(env));
+  const w0g = getAddress((env.ZEROG_W0G || ZEROG_W0G).toLowerCase());
+  const usdce = resolveOutToken(env, opts.tokenOut);
   const quoter = getAddress(env.ZIA_QUOTER || ZIA_QUOTER);
   const router = getAddress(env.ZIA_ROUTER || ZIA_ROUTER);
   const fee = ZIA_DEFAULT_FEE;

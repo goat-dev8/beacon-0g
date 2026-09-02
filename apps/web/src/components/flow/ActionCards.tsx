@@ -138,6 +138,157 @@ export function ActionCard({
     );
   }
 
+  if (card.type === "capabilities") {
+    const items = Array.isArray(card.items) ? card.items : [];
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {String(card.title ?? "Capabilities")}
+        </p>
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          {items.map((item) => {
+            const row = item as { name?: string; description?: string; group?: string };
+            return (
+              <li key={String(row.name)} className="rounded-xl border border-[var(--p-border)] px-3 py-2">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-muted)]">{row.group}</p>
+                <p className="mt-1 text-sm font-medium text-[var(--p-fg)]">{row.name}</p>
+                <p className="mt-1 text-xs text-[var(--p-muted)]">{row.description}</p>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
+  if (card.type === "swap_assets") {
+    const routes = Array.isArray(card.routes) ? card.routes : [];
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {String(card.title ?? "Zia assets")}
+        </p>
+        <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.summary ?? "")}</p>
+        <ul className="mt-3 space-y-2">
+          {routes.map((row) => {
+            const r = row as { to?: { symbol?: string }; fee?: number; pool?: string };
+            return (
+              <li key={`${r.to?.symbol}-${r.fee}`} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-[var(--p-fg)]">0G → {r.to?.symbol}</span>
+                <button
+                  type="button"
+                  className="rounded-full border border-[var(--p-border)] px-3 py-1 text-xs"
+                  onClick={() => onQuickReply(`Swap 0.01 0G to ${r.to?.symbol}`)}
+                >
+                  Quote fee {r.fee}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
+  if (card.type === "bridge_catalog") {
+    const routes = Array.isArray(card.routes) ? card.routes : [];
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {String(card.title ?? "Bridge to 0G")}
+        </p>
+        <p className="mt-2 text-sm text-[var(--p-muted)]">{String(card.summary ?? "")}</p>
+        <ul className="mt-3 space-y-3">
+          {routes.map((row) => {
+            const r = row as {
+              venue?: string;
+              source?: string;
+              href?: string;
+              eta?: string;
+              assets?: string;
+              reason?: string;
+            };
+            return (
+              <li key={String(r.venue)} className="rounded-xl border border-[var(--p-border)] px-3 py-2">
+                <p className="text-sm font-medium text-[var(--p-fg)]">
+                  {r.venue} · {r.source} → 0G
+                </p>
+                <p className="mt-1 text-xs text-[var(--p-muted)]">
+                  {r.assets} · ETA {r.eta}
+                </p>
+                <p className="mt-1 text-xs text-amber-200/90">{r.reason}</p>
+                {r.href ? (
+                  <a
+                    href={r.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex text-xs text-[var(--p-accent-text)] underline"
+                  >
+                    Open venue
+                  </a>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
+  if (card.type === "inspect_result") {
+    const inspect = (card.inspect ?? {}) as {
+      address?: string;
+      hash?: string;
+      explorer?: string;
+      isContract?: boolean;
+      bytecodeBytes?: number;
+      nativeBalanceWei?: string;
+      status?: string;
+      from?: string;
+      to?: string;
+      selector?: string;
+      risks?: string[];
+      verifiedNote?: string;
+    };
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {String(card.title ?? "Inspect")}
+        </p>
+        <p className="mt-2 break-all font-mono text-xs text-[var(--p-fg)]">
+          {inspect.address ?? inspect.hash}
+        </p>
+        {inspect.status ? <p className="mt-2 text-sm text-[var(--p-fg)]">Status {inspect.status}</p> : null}
+        {inspect.isContract != null ? (
+          <p className="mt-2 text-sm text-[var(--p-fg)]">
+            {inspect.isContract ? `Contract · ${inspect.bytecodeBytes} bytes` : "EOA · no bytecode"}
+          </p>
+        ) : null}
+        {inspect.selector ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Selector {inspect.selector}</p>
+        ) : null}
+        {(inspect.risks ?? []).map((risk) => (
+          <p key={risk} className="mt-2 text-sm text-[var(--p-muted)]">
+            {risk}
+          </p>
+        ))}
+        {inspect.verifiedNote ? (
+          <p className="mt-2 text-xs text-amber-200/90">{inspect.verifiedNote}</p>
+        ) : null}
+        {inspect.explorer ? (
+          <a
+            href={inspect.explorer}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex text-sm text-[var(--p-accent-text)] underline"
+          >
+            Open in Explorer
+          </a>
+        ) : null}
+      </div>
+    );
+  }
+
   if (card.type === "swap_clarify") {
     return (
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
