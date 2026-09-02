@@ -23,8 +23,10 @@ export function historyMeta(input: {
     const type = String(card.type ?? "");
     if (type === "swap_prepare" || type === "swap_assets") capability = "swap";
     else if (type === "inspect_result") capability = "inspect";
-    else if (type === "bridge_catalog") capability = "bridge";
-    else if (type === "media_result" || type === "desk_link") capability = capability ?? "job";
+    else if (type === "bridge_catalog" || type === "bridge_quote") capability = "bridge";
+    else if (type === "media_result" || type === "desk_link" || type === "job_offer") {
+      capability = capability ?? "job";
+    }
     else if (type === "denied") {
       capability = capability ?? "policy";
       status = "denied";

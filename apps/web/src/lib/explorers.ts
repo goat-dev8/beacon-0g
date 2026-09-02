@@ -1,19 +1,31 @@
-import { NETWORK } from "@/lib/chain";
+import { NETWORK } from "./chain";
 
-export function explorerForChain(_chainId?: number | string | null): string {
-  return NETWORK.explorer;
+const BY_CHAIN: Record<number, { origin: string; label: string }> = {
+  16661: { origin: NETWORK.explorer, label: "0G Aristotle" },
+  8453: { origin: "https://basescan.org", label: "Base" },
+  1: { origin: "https://etherscan.io", label: "Ethereum" },
+  56: { origin: "https://bscscan.com", label: "BNB Chain" },
+};
+
+function meta(chainId?: number | string | null) {
+  const id = Number(chainId ?? 16661);
+  return BY_CHAIN[id] ?? BY_CHAIN[16661];
 }
 
-export function explorerTx(hash: string, _chainId?: number | string | null): string {
-  return `${NETWORK.explorer}/tx/${hash}`;
+export function explorerForChain(chainId?: number | string | null): string {
+  return meta(chainId).origin;
 }
 
-export function explorerAddress(address: string, _chainId?: number | string | null): string {
-  return `${NETWORK.explorer}/address/${address}`;
+export function explorerTx(hash: string, chainId?: number | string | null): string {
+  return `${meta(chainId).origin}/tx/${hash}`;
 }
 
-export function explorerLabel(_chainId?: number | string | null): string {
-  return "0G Aristotle";
+export function explorerAddress(address: string, chainId?: number | string | null): string {
+  return `${meta(chainId).origin}/address/${address}`;
+}
+
+export function explorerLabel(chainId?: number | string | null): string {
+  return meta(chainId).label;
 }
 
 export function storageScan(root: string): string {

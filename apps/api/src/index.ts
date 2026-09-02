@@ -37,6 +37,8 @@ import { historyMeta } from "./historyMeta.js";
 import { encodeGiveFeedback, probeErc8004 } from "./erc8004.js";
 import { registerMcpRoutes } from "./mcpRoutes.js";
 import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
+import { classifyFlowIntent } from "./flowRouter.js";
+import { parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -152,6 +154,22 @@ async function persistJob(job: StoredJob): Promise<void> {
   } catch {
     /* Redis must not take down the request; GET hydrates on the next process. */
   }
+}
+
+function jobStayCards(job: StoredJob, title: string, summary: string) {
+  return [
+    {
+      type: "job_offer",
+      title,
+      summary,
+      jobId: job.id,
+      quoteId: job.quote.quoteId,
+      modelId: job.quote.modelId,
+      lockDisplay: format0g(job.quote.lock0g),
+      deskHref: `/flow/desk?job=${job.id}`,
+      proofHref: `/verify/${job.id}`,
+    },
+  ];
 }
 
 async function lastJobForWallet(wallet?: string): Promise<StoredJob | undefined> {
@@ -434,8 +452,32 @@ app.get("/v1/bridge/catalog", async () => ({
   executableFromBeaconSafe: false,
   routes: BRIDGE_CATALOG,
   honesty:
-    "Zia documents Stargate, Interport, and PortalBridge. 0G Hub and get.0g.ai are the live acquisition surfaces. Beacon Safe cannot sign a source-chain bridge.",
+    "Official 0G docs: XSwap (CCIP) and LI.FI (chain key zerog). Beacon Safe cannot sign a source-chain tx. Say “Bridge 1 USDC from Base to 0G” for a live LI.FI quote.",
 }));
+
+app.post("/v1/bridge/quote", async (req) => {
+  const body = z
+    .object({
+      text: z.string().min(1).max(500),
+      wallet: z.string().min(42),
+    })
+    .parse(req.body);
+  const intent = parseBridgeIntent(body.text);
+  if (!intent) {
+    throw new AppError("NO_FIT", {
+      message: "Name a source chain Beacon can quote (Base or Ethereum) and an amount, e.g. Bridge 1 USDC from Base to 0G.",
+    });
+  }
+  return quoteLifiBridge(intent, getAddress(body.wallet));
+});
+
+app.get("/v1/bridge/status", async (req) => {
+  const q = req.query as { txHash?: string; fromChainId?: string };
+  if (!q.txHash || !q.fromChainId) {
+    throw new AppError("VALIDATION", { message: "txHash and fromChainId are required." });
+  }
+  return statusLifiBridge(q.txHash, Number(q.fromChainId));
+});
 
 app.post("/v1/quote", async (req) => {
   const body = z
@@ -1634,14 +1676,71 @@ app.post("/v1/flow/chat", async (req) => {
     })
     .parse(req.body);
   const text = body.text.toLowerCase();
-  if (/5\s*0g|send .*0g to 0x/.test(text) && /random|this address|0x/.test(text)) {
+  const classified = classifyFlowIntent(body.text);
+  if (classified.kind === "deny_unconstrained" || (/5\s*0g|send .*0g to 0x/.test(text) && /random|this address|0x/.test(text))) {
     return {
       reply: "Blocked before funds moved.",
       denial: {
         hard: "Destination is not allowlisted and the amount exceeds MAX_TX.",
         semantic: "The request is an unconstrained transfer, not a Beacon job.",
       },
-      cards: [{ type: "denied", title: "Why was I blocked?" }],
+      cards: [
+        {
+          type: "denied",
+          title: "Why was I blocked?",
+          hard: "Destination is not allowlisted and the amount exceeds MAX_TX.",
+          semantic: "The request is an unconstrained transfer, not a Beacon job.",
+          requested: "5 0G",
+          fundsMoved: "0 0G",
+        },
+      ],
+    };
+  }
+  if (classified.kind === "why_blocked") {
+    const last = await lastJobForWallet(body.wallet);
+    if (last?.denial) {
+      return {
+        reply: `DENIED. ${last.denial} Funds moved: ${last.refundTx ? "refunded" : last.lockTx ? "escrow locked then settled" : "0 0G"}.`,
+        cards: [
+          {
+            type: "denied",
+            title: "Why was I blocked?",
+            hard: last.denial,
+            semantic: last.tee?.reason ?? last.denial,
+            requested: format0g(last.quote.lock0g),
+            fundsMoved: last.refundTx ? "refunded" : "0 0G",
+            proofHref: `/verify/${last.id}`,
+          },
+        ],
+      };
+    }
+    return {
+      reply:
+        "Hard policy blocks unconstrained sends before funds move. TeeML can also DENY a vault action. Ask after a blocked swap or job for the exact cap vs requested amount.",
+      cards: [{ type: "denied", title: "Why blocked", hard: "Allowlisted targets + MAX_TX.", semantic: "No last denial on file." }],
+    };
+  }
+  if (classified.kind === "balance") {
+    if (!body.wallet) {
+      return { reply: "Connect a wallet to read Beacon Safe wealth on Aristotle.", cards: [] };
+    }
+    const safe = await resolveSafe(getAddress(body.wallet));
+    if (!safe) {
+      return { reply: "No Beacon Safe for this wallet yet. Open Safe to create one.", cards: [{ type: "desk_link", title: "Open Safe", href: "/flow/security", summary: "Create or fund Beacon Safe." }] };
+    }
+    const [wealth] = await vaultView(safe, "wealth");
+    const [windowSpent] = await vaultView(safe, "windowSpent");
+    const [windowBudget] = await vaultView(safe, "rollingWindowBudget");
+    return {
+      reply: `Beacon Safe ${safe.slice(0, 6)}… wealth ${format0g(wealth)}. Policy window ${format0g(windowSpent)} / ${format0g(windowBudget)}. This is not job escrow.`,
+      cards: [
+        {
+          type: "quote",
+          unit: "0G",
+          title: "Safe wealth",
+          summary: `${format0g(wealth)} · window ${format0g(windowSpent)} / ${format0g(windowBudget)}`,
+        },
+      ],
     };
   }
   if (/verify/.test(text) && /last|proof|receipt|result/.test(text)) {
@@ -1698,10 +1797,40 @@ app.post("/v1/flow/chat", async (req) => {
       ],
     };
   }
+  if (classified.kind === "bridge_quote" || (/\bbridge\b/.test(text) && parseBridgeIntent(body.text))) {
+    const intent = parseBridgeIntent(body.text);
+    if (!intent) {
+      return {
+        reply:
+          "Name a source chain and amount. Example: Bridge 1 USDC from Base to 0G. Beacon Safe cannot sign Base.",
+        cards: [bridgeCatalogCard()],
+      };
+    }
+    if (!body.wallet) {
+      return {
+        reply: "Connect the wallet that will sign on the source chain. Beacon Safe cannot execute this.",
+        cards: [bridgeCatalogCard()],
+      };
+    }
+    try {
+      const card = await quoteLifiBridge(intent, getAddress(body.wallet));
+      return {
+        reply: `${card.title}. ~${card.estimatedOut} ${card.assetOut} on Aristotle in ~${card.etaSeconds}s. ${card.requiredSignatures[0]}`,
+        cards: [card, bridgeCatalogCard()],
+      };
+    } catch (err) {
+      return {
+        reply: isAppError(err)
+          ? err.userMessage
+          : "LI.FI could not quote this route. Beacon will not invent a bridge.",
+        cards: [bridgeCatalogCard()],
+      };
+    }
+  }
   if (/\bbridge\b/.test(text)) {
     return {
       reply:
-        "Beacon cannot execute a bridge from the Aristotle Safe. Sign on the source chain. Zia documents Stargate, Interport, and PortalBridge; 0G Hub and get.0g.ai are live.",
+        "Beacon cannot execute a bridge from the Aristotle Safe. Official path: XSwap/CCIP or LI.FI (zerog). Sign on the source chain. Example: Bridge 1 USDC from Base to 0G.",
       cards: [bridgeCatalogCard()],
     };
   }
@@ -1761,12 +1890,7 @@ app.post("/v1/flow/chat", async (req) => {
       cards: [
         { type: "inspect_result", title: "Transaction", inspect: info },
         { type: "quote", unit: "0G", title: "Explain this tx", summary: `${quote.modelId} · ${format0g(quote.lock0g)}` },
-        {
-          type: "desk_link",
-          title: "Lock analysis job",
-          summary: "Compute + Storage + proof. Refunds if it fails.",
-          href: `/flow/desk?job=${job.id}`,
-        },
+        ...jobStayCards(job, "Start analysis", "Runs in Flow. Jobs page keeps the full progress history."),
       ],
     };
   }
@@ -1790,16 +1914,14 @@ app.post("/v1/flow/chat", async (req) => {
       cards: [
         { type: "inspect_result", title: info.isContract ? "Contract" : "Wallet", inspect: info },
         { type: "quote", unit: "0G", title: "Explain this address", summary: `${quote.modelId} · ${format0g(quote.lock0g)}` },
-        {
-          type: "desk_link",
-          title: "Lock analysis job",
-          summary: "Compute + Storage + proof. Refunds if it fails.",
-          href: `/flow/desk?job=${job.id}`,
-        },
+        ...jobStayCards(job, "Start analysis", "Deep TeeML explanation. Stay in Flow; desk is optional."),
       ],
     };
   }
-  if (/what did i spend|show what the last job cost|spend(ing)? summary|cost today/.test(text)) {
+  if (
+    classified.kind === "spend" ||
+    /what did i spend|show what the last job cost|spend(ing)? summary|cost today|how much did i spend/.test(text)
+  ) {
     const last = await lastJobForWallet(body.wallet);
     const ids = jobRedis && body.wallet ? await listWalletJobIds(jobRedis, body.wallet) : [];
     const rows = [];
@@ -1809,21 +1931,30 @@ app.post("/v1/flow/chat", async (req) => {
       rows.push({
         id: job.id,
         status: job.status,
+        task: job.task,
         lock0g: format0g(job.quote.lock0g),
         modelId: job.quote.modelId,
       });
     }
-    if (!last && rows.length === 0) {
-      return { reply: "No Beacon jobs are on file for this wallet yet.", cards: [] };
+    const imageOnly = /image/.test(text);
+    const swapAsk = /swap/.test(text);
+    const filtered = imageOnly ? rows.filter((r) => r.task === "image") : rows;
+    if (!last && filtered.length === 0) {
+      return {
+        reply: swapAsk
+          ? "Zia swaps debit Beacon Safe wealth (windowSpent). They are not job escrow. Do not add the two."
+          : "No Beacon jobs are on file for this wallet yet.",
+        cards: [],
+      };
     }
-    const shown = last ?? (await getJob(rows[0]?.id ?? ""));
+    const shown = last ?? (await getJob(filtered[0]?.id ?? ""));
     const cards: Array<Record<string, unknown>> = [
       {
         type: "quote",
         unit: "0G",
-        title: "Job spend (escrow)",
+        title: imageOnly ? "Image job escrow" : "Job spend (escrow)",
         summary:
-          rows.map((r) => `${r.id.slice(0, 8)} ${r.status} ${r.lock0g}`).join(" · ") ||
+          filtered.map((r) => `${r.id.slice(0, 8)} ${r.status} ${r.lock0g}`).join(" · ") ||
           `${shown?.status ?? ""} · ${shown ? format0g(shown.quote.lock0g) : ""}`,
       },
     ];
@@ -1837,7 +1968,7 @@ app.post("/v1/flow/chat", async (req) => {
     }
     return {
       reply: shown
-        ? `Job records (escrow), not a chain archive. Last ${shown.id.slice(0, 8)}… ${shown.status} locked ${format0g(shown.quote.lock0g)}. Safe windowSpent is a different number — do not add them.`
+        ? `${swapAsk ? "Swaps are Safe windowSpent, not this list. " : ""}Job records (escrow), not a chain archive. Last ${shown.id.slice(0, 8)}… ${shown.status} locked ${format0g(shown.quote.lock0g)}. Safe windowSpent is a different number — do not add them.`
         : "No Beacon jobs are on file for this wallet yet.",
       cards,
     };
@@ -1929,12 +2060,7 @@ app.post("/v1/flow/chat", async (req) => {
       quote: serializeQuote(quote),
       cards: [
         { type: "quote", unit: "0G", title: "Cheap catalog quote", summary: `${quote.modelId} · ${format0g(quote.lock0g)}` },
-        {
-          type: "desk_link",
-          title: "Lock in Jobs",
-          summary: "Escrow native 0G then run Compute. Failures refund.",
-          href: `/flow/desk?job=${job.id}`,
-        },
+        ...jobStayCards(job, "Start cheaper job", "Escrow native 0G then run Compute. Stay in this chat."),
       ],
     };
   }
@@ -1954,12 +2080,11 @@ app.post("/v1/flow/chat", async (req) => {
     quote: serializeQuote(quote),
     cards: [
       { type: "quote", unit: "0G", title: "Quote in native 0G", summary: `${quote.modelId} · lock ${format0g(quote.lock0g)}` },
-      {
-        type: "desk_link",
-        title: "Lock in Jobs",
-        summary: "Escrow native 0G, then Compute + Storage. Refund if it fails.",
-        href: `/flow/desk?job=${job.id}`,
-      },
+      ...jobStayCards(
+        job,
+        task === "image" ? "Start image job" : "Start research job",
+        "Runs in the background. You can keep chatting.",
+      ),
     ],
   };
 });

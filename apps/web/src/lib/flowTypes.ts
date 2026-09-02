@@ -78,8 +78,10 @@ export const DISCOVERY_CARD_TYPES = new Set([
   "yield_vaults",
   "market_intel",
   "bridge_intent",
-  "desk_link",
 ]);
+
+/** Stay interactive even after the user keeps chatting (running jobs, live bridge). */
+export const PERSISTENT_CARD_TYPES = new Set(["job_offer", "bridge_quote"]);
 
 /** Card types that are interactive execution / quote surfaces. */
 export const LIVE_CARD_TYPES = new Set([
@@ -89,6 +91,7 @@ export const LIVE_CARD_TYPES = new Set([
   "bridge_clarify",
   "bridge_quote",
   "bridge_prepare",
+  "bridge_catalog",
   "media_clarify",
   "x402_quote",
   "media_result",
@@ -96,6 +99,9 @@ export const LIVE_CARD_TYPES = new Set([
   "quote",
   "authorization_receipt",
   "insufficient",
+  "denied",
+  "job_offer",
+  "desk_link",
   "fdc_receipt",
   "fassets_redeem_prep",
   "fassets_redeem_status",
@@ -125,6 +131,10 @@ export function cardsForDisplay(
   const out: { card: AgentCard; index: number; mode: "live" | "compact" }[] = [];
 
   msg.cards.forEach((card, index) => {
+    if (PERSISTENT_CARD_TYPES.has(card.type)) {
+      out.push({ card, index, mode: "live" });
+      return;
+    }
     if (isLatest) {
       out.push({ card, index, mode: "live" });
       return;

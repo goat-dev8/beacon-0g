@@ -1,11 +1,15 @@
 import { Interface, getAddress, type Provider } from "ethers";
 import { CHAIN_ID, ZEROG_EXPLORER } from "@beacon/shared";
+import { ZIA_DOC_TOKENS } from "@beacon/swap";
 
 const ERC20 = new Interface([
   "function name() view returns (string)",
   "function symbol() view returns (string)",
   "function decimals() view returns (uint8)",
   "function totalSupply() view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function owner() view returns (address)",
+  "function implementation() view returns (address)",
 ]);
 
 const SELECTORS: Array<{ id: string; hex: string }> = [
@@ -27,6 +31,9 @@ export type AddressInspect = {
   isContract: boolean;
   nativeBalanceWei: string;
   token?: { name?: string; symbol?: string; decimals?: number; totalSupply?: string };
+  tokenBalances?: Array<{ symbol: string; address: string; balance: string }>;
+  owner?: string | null;
+  implementation?: string | null;
   selectorsPresent: string[];
   verifiedSource: false;
   verifiedNote: string;
@@ -44,6 +51,7 @@ export type TxInspect = {
   gasUsed?: string;
   selector?: string | null;
   logs?: number;
+  transfers?: Array<{ token?: string; from?: string; to?: string; value?: string }>;
 };
 
 function explorerAddress(addr: string) {
@@ -112,6 +120,49 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
     }
   }
 
+  let owner: string | null = null;
+  let implementation: string | null = null;
+  if (isContract && selectorsPresent.includes("ownable.owner")) {
+    try {
+      const raw = await provider.call({ to: address, data: ERC20.encodeFunctionData("owner") });
+      owner = ERC20.decodeFunctionResult("owner", raw)[0] as string;
+    } catch {
+      owner = null;
+    }
+  }
+  if (isContract && selectorsPresent.includes("proxy.implementation")) {
+    try {
+      const raw = await provider.call({ to: address, data: ERC20.encodeFunctionData("implementation") });
+      implementation = ERC20.decodeFunctionResult("implementation", raw)[0] as string;
+    } catch {
+      implementation = null;
+    }
+  }
+
+  const tokenBalances: AddressInspect["tokenBalances"] = [];
+  const seen = new Set<string>();
+  for (const tok of ZIA_DOC_TOKENS) {
+    if (tok.native || seen.has(tok.address.toLowerCase())) continue;
+    seen.add(tok.address.toLowerCase());
+    try {
+      const raw = await provider.call({
+        to: tok.address,
+        data: ERC20.encodeFunctionData("balanceOf", [address]),
+      });
+      const bal = ERC20.decodeFunctionResult("balanceOf", raw)[0] as bigint;
+      if (bal > 0n) {
+        const decimals = tok.docsDecimals ?? 18;
+        tokenBalances.push({
+          symbol: tok.symbol,
+          address: tok.address,
+          balance: (Number(bal) / 10 ** decimals).toString(),
+        });
+      }
+    } catch {
+      /* token may not exist or call reverts */
+    }
+  }
+
   return {
     address,
     chainId: CHAIN_ID,
@@ -120,6 +171,9 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
     isContract,
     nativeBalanceWei: balance.toString(),
     token,
+    tokenBalances,
+    owner,
+    implementation,
     selectorsPresent,
     verifiedSource: false,
     verifiedNote: "Beacon does not invent ABIs. Verified source was not fetched; treat selector hints as incomplete.",
@@ -149,6 +203,16 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
     };
   }
   const status = receipt?.status === 1 ? "success" : "reverted";
+  const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const transfers = (receipt?.logs ?? [])
+    .filter((log) => log.topics?.[0]?.toLowerCase() === transferTopic && log.topics.length >= 3)
+    .slice(0, 8)
+    .map((log) => ({
+      token: log.address,
+      from: `0x${log.topics[1].slice(26)}`,
+      to: `0x${log.topics[2].slice(26)}`,
+      value: log.data && log.data !== "0x" ? BigInt(log.data).toString() : undefined,
+    }));
   return {
     hash: txHash,
     chainId: CHAIN_ID,
@@ -160,5 +224,6 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
     gasUsed: receipt?.gasUsed?.toString(),
     selector: tx?.data && tx.data.length >= 10 ? tx.data.slice(0, 10) : null,
     logs: receipt?.logs.length ?? 0,
+    transfers,
   };
 }

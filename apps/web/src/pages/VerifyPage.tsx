@@ -184,7 +184,7 @@ export function VerifyPage() {
                       className="size-2 shrink-0 rounded-full"
                       style={{ background: step.done ? ACCENT : LINE }}
                     />
-                    <span style={{ color: step.done ? FG : FAINT }}>{step.label}</span>
+                    <span style={{ color: step.done ? FG : MUTED }}>{step.label}</span>
                   </li>
                 ))}
               </ol>

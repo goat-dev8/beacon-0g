@@ -16,6 +16,20 @@ describe("historyMeta", () => {
     expect(meta.capability).toBe("job");
   });
 
+  it("extracts job ids from stay-in-flow job_offer cards", () => {
+    const meta = historyMeta({
+      lastMessage: "Deep TeeML explanation. Stay in Flow.",
+      cards: [
+        {
+          type: "job_offer",
+          jobId: "46339cec-3217-4606-a4ca-cd914c4e58a9",
+        },
+      ],
+    });
+    expect(meta.jobIds).toEqual(["46339cec-3217-4606-a4ca-cd914c4e58a9"]);
+    expect(meta.capability).toBe("job");
+  });
+
   it("marks reverse swap cards as swap", () => {
     const meta = historyMeta({
       lastMessage: "Live quote 0.001 USDC.e → 0G.",

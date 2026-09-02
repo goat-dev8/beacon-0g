@@ -168,7 +168,7 @@ function buildExplorerLinks(
   }
   if (cardType === "bridge_prepare" && exec?.sendHash) {
     // Bridge source always Aristotle.
-    links.push({ label: "Source tx · Aristotle", href: explorerTx(exec.sendHash, 16661) });
+    links.push({ label: `Source tx · ${explorerLabel(chainId)}`, href: explorerTx(exec.sendHash, chainId) });
     const lzBase = String(card.layerZeroScanBase ?? "https://testnet.layerzeroscan.com/tx/");
     links.push({ label: "LayerZero Scan", href: `${lzBase}${exec.sendHash}` });
   }

@@ -9,8 +9,29 @@ export type BridgeRoute = {
   reason: string;
 };
 
-/** Zia docs + get.0g.ai + 0G Hub. Beacon Safe cannot sign a source-chain CCIP/Stargate tx. */
+/** Official 0G docs + Zia venues. Beacon Safe cannot sign a source-chain CCIP/Stargate tx. */
 export const BRIDGE_CATALOG: BridgeRoute[] = [
+  {
+    source: "Base / Ethereum",
+    destination: "0G Aristotle",
+    assets: "USDC → USDC.e",
+    venue: "LI.FI (Jumper)",
+    href: "https://jumper.exchange/?toChain=16661",
+    eta: "~2 min (live quote)",
+    executableFromBeaconSafe: false,
+    reason:
+      "docs.0g.ai lists LI.FI with chain key zerog / 16661. Beacon quotes this live. The user wallet signs on the source chain.",
+  },
+  {
+    source: "Ethereum / others",
+    destination: "0G Aristotle",
+    assets: "CCIP tokens (XSwap)",
+    venue: "XSwap",
+    href: "https://xswap.link/bridge?toChain=16661",
+    eta: "CCIP-dependent",
+    executableFromBeaconSafe: false,
+    reason: "Official 0G bridge path. Beacon does not submit XSwap calldata from the Safe.",
+  },
   {
     source: "Ethereum",
     destination: "0G Aristotle",

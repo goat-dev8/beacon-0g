@@ -179,6 +179,14 @@ export const api = {
   },
   getJob: (jobId: string) =>
     request<{
+      id?: string;
+      status?: string;
+      resultText?: string | null;
+      imageB64?: string | null;
+      denial?: string | null;
+      lockTx?: string | null;
+      releaseTx?: string | null;
+      refundTx?: string | null;
       job: JobRow;
       quote?: QuoteDto;
       recentEvents: JobEvent[];
@@ -191,6 +199,56 @@ export const api = {
       } | null;
       acceptance: import("./types").AcceptanceSummary | null;
     }>(`/v1/jobs/${jobId}`),
+  quoteLifiBridge: (text: string, wallet: string) =>
+    request<{
+      type: "bridge_quote";
+      title: string;
+      tool: string;
+      source: string;
+      destination: string;
+      assetIn: string;
+      assetOut: string;
+      amountIn: string;
+      estimatedOut: string;
+      minOut: string;
+      etaSeconds: number;
+      feeSummary: string;
+      fromChainId: number;
+      toChainId: number;
+      approvalAddress: string | null;
+      transactionRequest: { to: string; data: string; value: string; chainId: number } | null;
+      executableFromBeaconSafe: false;
+      executableFromUserWallet: boolean;
+      requiredSignatures: string[];
+      honesty: string;
+      quoteId: string;
+    }>("/v1/bridge/quote", {
+      method: "POST",
+      body: JSON.stringify({ text, wallet }),
+    }),
+  lifiBridgeStatus: (txHash: string, fromChainId: number) =>
+    request<{
+      status: string;
+      sendingTx: string | null;
+      receivingTx: string | null;
+      complete: boolean;
+      honesty: string;
+    }>(`/v1/bridge/status?txHash=${encodeURIComponent(txHash)}&fromChainId=${fromChainId}`),
+  flowSpend: (wallet: string) =>
+    request<{
+      ok: boolean;
+      jobs: Array<{
+        id: string;
+        status: string;
+        lock0g: string;
+        modelId: string;
+        lockTx: string | null;
+        releaseTx: string | null;
+        refundTx: string | null;
+      }>;
+      vault: { address: string; windowSpent: string; windowBudget: string } | null;
+      honesty: string;
+    }>(`/v1/flow/spend?wallet=${encodeURIComponent(wallet)}`),
   artifacts: (jobId: string) =>
     request<{ jobId: string; artifacts: Artifact[] }>(`/v1/jobs/${jobId}/artifacts`),
   artifactContent: (jobId: string, artifactId: string) =>

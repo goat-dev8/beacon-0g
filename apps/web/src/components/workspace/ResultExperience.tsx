@@ -1,9 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import {
   Check,
   Copy,
@@ -22,6 +19,7 @@ import { Button, FacetCtaPair } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { NETWORK } from "@/lib/chain";
 import { formatOgDisplay } from "@/lib/format";
+import { SafeMarkdown } from "@/components/SafeMarkdown";
 import "highlight.js/styles/github-dark.css";
 
 type Artifact = {
@@ -177,24 +175,26 @@ export function ResultExperience({
       a.click();
       return;
     }
-    if (rawSrc) {
-      const a = document.createElement("a");
-      a.href = rawSrc;
-      a.download = `${bodyKind}-${jobId.slice(0, 8)}`;
-      a.target = "_blank";
-      a.rel = "noreferrer";
-      a.click();
-      return;
-    }
     if (!body) return;
-    const blob = new Blob([body], { type: bodyMime || "text/plain" });
+    const blob = new Blob([body], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `${bodyKind}-${jobId.slice(0, 8)}.md`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [imageSrc, rawSrc, isImage, isVideo, body, bodyMime, bodyKind, jobId]);
+  }, [imageSrc, rawSrc, isImage, isVideo, body, bodyKind, jobId]);
+
+  const onDownloadTxt = useCallback(() => {
+    if (!body) return;
+    const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${bodyKind}-${jobId.slice(0, 8)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [body, bodyKind, jobId]);
 
   const meta = quote?.breakdown;
   const draftMeta = useMemo(() => {
@@ -245,9 +245,14 @@ export function ResultExperience({
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             </IconBtn>
           )}
-          <IconBtn onClick={onDownload} label="Download">
+          <IconBtn onClick={onDownload} label={isImage ? "Download image" : "Download .md"}>
             <Download className="size-3.5" />
           </IconBtn>
+          {isText && (
+            <IconBtn onClick={onDownloadTxt} label="Download .txt">
+              <Download className="size-3.5" />
+            </IconBtn>
+          )}
           <IconBtn onClick={() => setExpanded((v) => !v)} label={expanded ? "Collapse" : "Expand"}>
             <Expand className="size-3.5" />
           </IconBtn>
@@ -322,9 +327,10 @@ export function ResultExperience({
         )}
 
         {mode === "artifact" && body && isImage && bodyMime.includes("svg") && (
-          <div
-            className="overflow-hidden rounded-xl border border-line bg-paper [&_svg]:h-auto [&_svg]:w-full"
-            dangerouslySetInnerHTML={{ __html: body }}
+          <img
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(body)}`}
+            alt={`${bodyKind} result`}
+            className="mx-auto max-h-[min(70vh,640px)] w-full rounded-xl object-contain"
           />
         )}
         {mode === "artifact" && isImage && imageSrc && !bodyMime.includes("svg") && (
@@ -342,13 +348,7 @@ export function ResultExperience({
             className="mx-auto max-h-[min(70vh,640px)] w-full rounded-xl bg-ink"
           />
         )}
-        {mode === "artifact" && isText && body && (
-          <div className="prose-beacon max-w-none overflow-x-auto text-[15px] leading-7 text-ink [&_img]:max-w-full [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-line [&_pre]:bg-[#0d1117] [&_pre]:p-4 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_code]:font-mono [&_code]:text-[13px] [&_h1]:font-display [&_h1]:text-xl [&_h1]:font-semibold sm:[&_h1]:text-2xl [&_h2]:mt-6 [&_h2]:font-display [&_h2]:text-lg [&_h2]:font-semibold sm:[&_h2]:text-xl [&_p]:my-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {body}
-            </ReactMarkdown>
-          </div>
-        )}
+        {mode === "artifact" && isText && body && <SafeMarkdown text={body} />}
         {mode === "artifact" &&
           !body &&
           !isImage &&

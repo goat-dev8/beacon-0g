@@ -7,7 +7,8 @@ import { explorerTx } from "@/lib/explorers";
 import { jobIdFromDeskHref } from "@/lib/verifyProof";
 import { cn } from "@/lib/utils";
 import { ensureSafeAgentSession } from "@/lib/safeSession";
-import { AgentText } from "@/components/AgentText";
+import { executeLifiBridge } from "@/lib/wallet";
+import { SafeMarkdown } from "@/components/SafeMarkdown";
 import type { CardExecutionState, AgentCard } from "@/lib/executionPhases";
 import type { ConvState, PaidResendMeta } from "@/lib/flowTypes";
 
@@ -92,20 +93,29 @@ export function ActionCard({
   );
   const [approveHash, setApproveHash] = useState<string | null>(() => savedExec?.approveHash ?? null);
   const [swapHash, setSwapHash] = useState<string | null>(() => savedExec?.swapHash ?? null);
+  const [sendStatus, setSendStatus] = useState<"idle" | "pending" | "confirmed" | "failed">(
+    () => savedExec?.sendStatus ?? "idle",
+  );
+  const [sendHash, setSendHash] = useState<string | null>(() => savedExec?.sendHash ?? null);
+  const [jobPhase, setJobPhase] = useState<"idle" | "locking" | "running" | "done" | "failed">("idle");
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [jobResult, setJobResult] = useState<string | null>(null);
+  const [jobImage, setJobImage] = useState<string | null>(null);
+  const [jobDenial, setJobDenial] = useState<string | null>(null);
 
   useEffect(() => {
-    if (card.type === "swap_prepare" || card.type === "media_result") {
+    if (card.type === "swap_prepare" || card.type === "media_result" || card.type === "bridge_quote" || card.type === "job_offer") {
       onExecutionStateChange(execKey, {
         approveStatus,
         swapStatus,
-        sendStatus: "idle",
+        sendStatus,
         approveHash,
         swapHash,
-        sendHash: null,
-        payBusy: false,
+        sendHash,
+        payBusy: jobPhase === "running" || jobPhase === "locking",
       });
     }
-  }, [card.type, execKey, approveStatus, swapStatus, approveHash, swapHash, onExecutionStateChange]);
+  }, [card.type, execKey, approveStatus, swapStatus, sendStatus, approveHash, swapHash, sendHash, jobPhase, onExecutionStateChange]);
 
   if (
     card.type === "fassets_desk" ||
@@ -113,11 +123,6 @@ export function ActionCard({
     card.type === "fassets_redeem_status" ||
     card.type === "ftso_signals" ||
     card.type === "fdc_receipt" ||
-    card.type === "bridge_quote" ||
-    card.type === "bridge_prepare" ||
-    card.type === "bridge_clarify" ||
-    card.type === "bridge_routes" ||
-    card.type === "bridge_intent" ||
     card.type === "x402_quote"
   ) {
     return (
@@ -231,6 +236,163 @@ export function ActionCard({
             );
           })}
         </ul>
+        <p className="mt-3 text-xs text-amber-200/90">
+          Beacon Safe cannot sign a source-chain tx. Say “Bridge 1 USDC from Base to 0G” for a live LI.FI quote.
+        </p>
+      </div>
+    );
+  }
+
+  if (card.type === "bridge_quote") {
+    const fromChainId = Number(card.fromChainId ?? 0);
+    const txReq = card.transactionRequest as
+      | { to: string; data: string; value: string; chainId: number }
+      | null
+      | undefined;
+    const canSign = Boolean(wallet && txReq?.to && txReq?.data && card.executableFromUserWallet);
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {String(card.title ?? "Bridge")}
+        </p>
+        <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Source</p>
+            <p>{String(card.source)}</p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Destination</p>
+            <p>{String(card.destination)}</p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">You send</p>
+            <p>
+              {String(card.amountIn)} {String(card.assetIn)}
+            </p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Estimated receive</p>
+            <p>
+              ~{String(card.estimatedOut)} {String(card.assetOut)}
+            </p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Min received</p>
+            <p>{String(card.minOut)}</p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">ETA</p>
+            <p>~{String(card.etaSeconds)}s</p>
+          </div>
+        </dl>
+        <p className="mt-2 text-xs text-[var(--p-muted)]">{String(card.feeSummary ?? "")}</p>
+        <p className="mt-2 text-xs text-amber-200/90">{String(card.honesty)}</p>
+        {(card.requiredSignatures as string[] | undefined)?.map((line) => (
+          <p key={line} className="mt-1 text-xs text-[var(--p-fg)]">
+            {line}
+          </p>
+        ))}
+        <div className="mt-3 space-y-2">
+          <StatusRow label="Approve USDC" status={approveStatus} hash={approveHash} chainId={fromChainId} />
+          <StatusRow label="Source tx" status={swapStatus} hash={swapHash} chainId={fromChainId} />
+          <StatusRow label="Destination" status={sendStatus} hash={sendHash} chainId={16661} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!wallet && (
+            <button type="button" onClick={onConnect} className="rounded-full bg-signal px-4 py-2 text-sm text-ink">
+              Connect wallet
+            </button>
+          )}
+          {canSign && swapStatus !== "confirmed" && (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    const result = await executeLifiBridge({
+                      transactionRequest: {
+                        to: txReq!.to,
+                        data: txReq!.data as `0x${string}`,
+                        value: txReq!.value,
+                        chainId: txReq!.chainId,
+                      },
+                      approvalAddress: typeof card.approvalAddress === "string" ? card.approvalAddress : null,
+                      fromToken: typeof card.fromToken === "string" ? card.fromToken : undefined,
+                      fromAmount: typeof card.amountAtomic === "string" ? card.amountAtomic : undefined,
+                      onStep: (step) => {
+                        if (step.step === "approve") {
+                          setApproveStatus(step.status === "skipped" ? "skipped" : step.status);
+                          if (step.hash) setApproveHash(step.hash);
+                        }
+                        if (step.step === "send") {
+                          setSwapStatus(step.status === "failed" ? "failed" : step.status);
+                          if (step.hash) setSwapHash(step.hash);
+                        }
+                      },
+                    });
+                    setSwapHash(result.sourceHash);
+                    setSwapStatus("confirmed");
+                    setSendStatus("pending");
+                    onTxConfirmed?.({
+                      kind: "bridge",
+                      title: String(card.title ?? "Bridge"),
+                      hash: result.sourceHash,
+                      explorerUrl: explorerTx(result.sourceHash, fromChainId),
+                      meta: { fromChainId, honesty: "Source confirmed. Destination is not complete yet." },
+                    });
+                    for (let i = 0; i < 40; i += 1) {
+                      const st = await api.lifiBridgeStatus(result.sourceHash, fromChainId);
+                      setSendStatus(st.complete ? "confirmed" : "pending");
+                      if (st.receivingTx) setSendHash(st.receivingTx);
+                      if (st.complete) break;
+                      await new Promise((r) => setTimeout(r, 8000));
+                    }
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Bridge failed");
+                    setSwapStatus((prev) => (prev === "pending" ? "failed" : prev));
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {busy ? "Sign on source chain…" : "Bridge"}
+            </button>
+          )}
+          {swapHash && (
+            <a
+              href={explorerTx(swapHash, fromChainId)}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+            >
+              Source TX
+            </a>
+          )}
+          {sendHash && (
+            <a
+              href={explorerTx(sendHash, 16661)}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+            >
+              Destination TX
+            </a>
+          )}
+        </div>
+        {error && <p className="mt-2 text-xs text-[var(--p-danger)]">{error}</p>}
+        {swapStatus === "confirmed" && sendStatus !== "confirmed" && (
+          <p className="mt-3 text-sm text-[var(--p-fg)]">
+            Source confirmed. Destination is complete only when LI.FI reports DONE with a 0G tx.
+          </p>
+        )}
+        {sendStatus === "confirmed" && sendHash && (
+          <p className="mt-3 text-sm text-[var(--p-accent-text)]">Destination detected on Aristotle.</p>
+        )}
       </div>
     );
   }
@@ -274,6 +436,17 @@ export function ActionCard({
         ))}
         {inspect.verifiedNote ? (
           <p className="mt-2 text-xs text-amber-200/90">{inspect.verifiedNote}</p>
+        ) : null}
+        {Array.isArray((inspect as { tokenBalances?: Array<{ symbol: string; balance: string }> }).tokenBalances) &&
+          (inspect as { tokenBalances: Array<{ symbol: string; balance: string }> }).tokenBalances.map((row) => (
+            <p key={row.symbol} className="mt-1 font-mono text-xs text-[var(--p-fg)]">
+              {row.symbol} · {row.balance}
+            </p>
+          ))}
+        {(inspect as { owner?: string }).owner ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">
+            owner {(inspect as { owner: string }).owner}
+          </p>
         ) : null}
         {inspect.explorer ? (
           <a
@@ -881,17 +1054,60 @@ export function ActionCard({
         )}
         {isResearch && content && (
           <div className="mt-3 border-t border-[var(--p-border)] pt-3">
-            <AgentText text={content} />
+            <SafeMarkdown text={content} />
           </div>
         )}
-        {typeof card.jobId === "string" && card.jobId && (
-          <Link
-            to={`/verify/${card.jobId}`}
-            className="mt-3 inline-flex rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink"
-          >
-            View proof
-          </Link>
-        )}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {isResearch && content && (
+            <>
+              <button
+                type="button"
+                className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                onClick={() => void navigator.clipboard.writeText(content)}
+              >
+                Copy
+              </button>
+              <button
+                type="button"
+                className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                onClick={() => {
+                  const blob = new Blob([content], { type: "text/markdown" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "beacon-report.md";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Download .md
+              </button>
+              <button
+                type="button"
+                className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                onClick={() => {
+                  const blob = new Blob([content], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "beacon-report.txt";
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Download .txt
+              </button>
+            </>
+          )}
+          {typeof card.jobId === "string" && card.jobId && (
+            <Link
+              to={`/verify/${card.jobId}`}
+              className="inline-flex rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink"
+            >
+              View proof
+            </Link>
+          )}
+        </div>
       </div>
     );
   }
@@ -908,11 +1124,125 @@ export function ActionCard({
     );
   }
 
+  if (card.type === "job_offer") {
+    const jobId = String(card.jobId ?? "");
+    const quoteId = String(card.quoteId ?? "");
+    const proofHref = String(card.proofHref ?? `/verify/${jobId}`);
+    const deskHref = String(card.deskHref ?? `/flow/desk?job=${jobId}`);
+    const running = jobPhase === "locking" || jobPhase === "running";
+    const done = jobPhase === "done";
+    const failed = jobPhase === "failed";
+    return (
+      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+          {running ? "Job running" : done ? "Job complete" : failed ? "Job failed" : String(card.title ?? "Start job")}
+        </p>
+        <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.summary ?? "")}</p>
+        <dl className="mt-3 grid gap-2 font-mono text-[11px] text-[var(--p-muted)] sm:grid-cols-3">
+          <div>ID · {jobId.slice(0, 8)}…</div>
+          <div>Cost · {String(card.lockDisplay ?? "")}</div>
+          <div>Model · {String(card.modelId ?? "")}</div>
+        </dl>
+        {jobStatus && <p className="mt-2 text-sm text-[var(--p-fg)]">Status {jobStatus}</p>}
+        {jobDenial && <p className="mt-2 text-sm text-[var(--p-danger)]">{jobDenial}</p>}
+        {jobImage && (
+          <img src={`data:image/png;base64,${jobImage}`} alt="Job result" className="mt-3 max-h-64 rounded-xl" />
+        )}
+        {jobResult && (
+          <div className="mt-3 max-h-64 overflow-y-auto border-t border-[var(--p-border)] pt-3">
+            <SafeMarkdown text={jobResult} />
+          </div>
+        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {!wallet && (
+            <button type="button" onClick={onConnect} className="rounded-full bg-signal px-4 py-2 text-sm text-ink">
+              Connect wallet
+            </button>
+          )}
+          {wallet && jobPhase === "idle" && (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink disabled:opacity-50"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  setError(null);
+                  setJobPhase("locking");
+                  try {
+                    const session = await ensureSafeAgentSession(wallet);
+                    await api.approveJobFromSafe(jobId, quoteId, {
+                      ownerWallet: wallet,
+                      sessionToken: session.token,
+                    });
+                    setJobPhase("running");
+                    setJobStatus("AUTHORIZED");
+                    for (let i = 0; i < 80; i += 1) {
+                      const row = await api.getJob(jobId);
+                      const status = String(row.status ?? row.job?.status ?? "");
+                      setJobStatus(status);
+                      if (row.resultText) setJobResult(row.resultText);
+                      if (row.imageB64) setJobImage(row.imageB64);
+                      if (row.denial) setJobDenial(row.denial);
+                      if (["PASSED", "CLOSED", "SETTLING"].includes(status)) {
+                        setJobPhase("done");
+                        onBalancesRefresh();
+                        break;
+                      }
+                      if (["FAILED", "REFUSING", "EXPIRED", "CANCELED"].includes(status)) {
+                        setJobPhase("failed");
+                        break;
+                      }
+                      await new Promise((r) => setTimeout(r, 4000));
+                    }
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "Job lock failed");
+                    setJobPhase("failed");
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {busy ? "Locking…" : String(card.title ?? "Start")}
+            </button>
+          )}
+          {done && (
+            <>
+              {jobResult && (
+                <button
+                  type="button"
+                  className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                  onClick={() => void navigator.clipboard.writeText(jobResult)}
+                >
+                  Copy
+                </button>
+              )}
+              <Link to={proofHref} className="rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink">
+                View proof
+              </Link>
+            </>
+          )}
+          <Link
+            to={deskHref}
+            className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm text-[var(--p-fg)]"
+          >
+            Jobs history
+          </Link>
+        </div>
+        {error && <p className="mt-2 text-xs text-[var(--p-danger)]">{error}</p>}
+        {running && (
+          <p className="mt-3 text-xs text-[var(--p-muted)]">Keep chatting. This job stays in Flow.</p>
+        )}
+      </div>
+    );
+  }
+
   if (card.type === "desk_link") {
     const href = String(card.href);
     const isProof = href.includes("/verify/");
     const deskJob = jobIdFromDeskHref(href);
-    const cta = isProof ? "View proof" : href.includes("/security") ? "Open Safe" : "Open desk";
+    const cta = isProof ? "View proof" : href.includes("/security") ? "Open Safe" : "Jobs history";
     return (
       <div className="rounded-2xl border border-[var(--p-border)] p-4">
         <p className="font-medium text-[var(--p-fg)]">{card.title}</p>
@@ -989,6 +1319,40 @@ export function ActionCard({
             </a>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  if (card.type === "denied") {
+    return (
+      <div className="rounded-2xl border border-[var(--p-danger)]/40 bg-[var(--p-danger)]/10 p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-danger)]">Denied</p>
+        <p className="mt-2 font-medium text-[var(--p-fg)]">{String(card.title ?? "Why blocked")}</p>
+        {card.hard ? <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.hard)}</p> : null}
+        {card.reason ? <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.reason)}</p> : null}
+        {card.semantic ? <p className="mt-2 text-sm text-[var(--p-muted)]">{String(card.semantic)}</p> : null}
+        <dl className="mt-3 grid gap-2 font-mono text-xs sm:grid-cols-2">
+          {card.requested != null && (
+            <div>
+              <p className="text-[var(--p-muted)]">Requested</p>
+              <p>{String(card.requested)}</p>
+            </div>
+          )}
+          {card.fundsMoved != null && (
+            <div>
+              <p className="text-[var(--p-muted)]">Funds moved</p>
+              <p>{String(card.fundsMoved)}</p>
+            </div>
+          )}
+        </dl>
+        {typeof card.proofHref === "string" && (
+          <Link
+            to={card.proofHref}
+            className="mt-3 inline-flex rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink"
+          >
+            View proof
+          </Link>
+        )}
       </div>
     );
   }

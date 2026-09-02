@@ -72,10 +72,140 @@ export async function ensureAristotleNetwork(): Promise<void> {
 }
 
 /**
- * Beacon 0G is Aristotle-only. Other chains are refused.
+ * Beacon jobs, Safe, and Zia stay on Aristotle. Other chains are refused here.
+ * LI.FI source-chain signing uses `ensureSourceChain` instead.
  */
 export async function ensureForeignMainnet(): Promise<void> {
   throw new Error("Beacon stays on 0G Aristotle (chain 16661). Other networks are disabled.");
+}
+
+const SOURCE_CHAINS: Record<
+  number,
+  { name: string; rpc: string; explorer: string; nativeName: string; nativeSymbol: string }
+> = {
+  8453: {
+    name: "Base",
+    rpc: "https://mainnet.base.org",
+    explorer: "https://basescan.org",
+    nativeName: "Ether",
+    nativeSymbol: "ETH",
+  },
+  1: {
+    name: "Ethereum",
+    rpc: "https://cloudflare-eth.com",
+    explorer: "https://etherscan.io",
+    nativeName: "Ether",
+    nativeSymbol: "ETH",
+  },
+};
+
+/**
+ * Narrow switch for a live LI.FI quote. Only Base (8453) and Ethereum (1).
+ * Always switch back to Aristotle after the source tx is submitted.
+ */
+export async function ensureSourceChain(chainId: number): Promise<void> {
+  const meta = SOURCE_CHAINS[chainId];
+  if (!meta) {
+    throw new Error(`Beacon will not switch to unsupported source chain ${chainId}.`);
+  }
+  await ensureChain({
+    chainId,
+    name: meta.name,
+    rpc: meta.rpc,
+    explorer: meta.explorer,
+    nativeName: meta.nativeName,
+    nativeSymbol: meta.nativeSymbol,
+  });
+}
+
+export type LifiBridgeStep =
+  | { step: "approve"; status: "pending" | "confirmed" | "skipped"; hash?: Hex }
+  | { step: "send"; status: "pending" | "confirmed" | "failed"; hash?: Hex; error?: string };
+
+/**
+ * User-wallet source-chain tx from a live LI.FI transactionRequest.
+ * Beacon Safe cannot sign this. Status tracking is a separate LI.FI poll.
+ */
+export async function executeLifiBridge(params: {
+  transactionRequest: { to: string; data: Hex; value: string; chainId: number };
+  approvalAddress?: string | null;
+  fromToken?: string;
+  fromAmount?: string;
+  onStep?: (s: LifiBridgeStep) => void;
+}): Promise<{ sourceHash: Hex; approveHash?: Hex }> {
+  const tx = params.transactionRequest;
+  if (!tx.to || !tx.data) {
+    throw new Error("LI.FI did not return an executable transactionRequest.");
+  }
+  await ensureSourceChain(tx.chainId);
+  const eth = getEip1193Provider();
+  if (!eth) throw new Error("No wallet connected. Tap Connect and pick a wallet.");
+  const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+  const from = accounts[0];
+  if (!from) throw new Error("Wallet returned no account.");
+
+  let approveHash: Hex | undefined;
+  if (params.approvalAddress && params.fromToken && params.fromAmount) {
+    const spender = getAddress(params.approvalAddress);
+    const token = getAddress(params.fromToken);
+    const amount = BigInt(params.fromAmount);
+    const allowanceData = encodeFunctionData({
+      abi: parseAbi(["function allowance(address owner, address spender) view returns (uint256)"]),
+      functionName: "allowance",
+      args: [getAddress(from), spender],
+    });
+    const raw = (await eth.request({
+      method: "eth_call",
+      params: [{ to: token, data: allowanceData }, "latest"],
+    })) as string;
+    const allowance = BigInt(raw || "0x0");
+    if (allowance < amount) {
+      params.onStep?.({ step: "approve", status: "pending" });
+      const approveData = encodeFunctionData({
+        abi: parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]),
+        functionName: "approve",
+        args: [spender, amount],
+      });
+      approveHash = (await eth.request({
+        method: "eth_sendTransaction",
+        params: [{ from, to: token, data: approveData }],
+      })) as Hex;
+      params.onStep?.({ step: "approve", status: "confirmed", hash: approveHash });
+    } else {
+      params.onStep?.({ step: "approve", status: "skipped" });
+    }
+  }
+
+  params.onStep?.({ step: "send", status: "pending" });
+  try {
+    const sourceHash = (await eth.request({
+      method: "eth_sendTransaction",
+      params: [
+        {
+          from,
+          to: tx.to,
+          data: tx.data,
+          value: tx.value && tx.value !== "0" ? tx.value : "0x0",
+        },
+      ],
+    })) as Hex;
+    params.onStep?.({ step: "send", status: "confirmed", hash: sourceHash });
+    try {
+      await ensureAristotleNetwork();
+    } catch {
+      /* source tx already sent; Flow can continue even if the switch-back is rejected */
+    }
+    return { sourceHash, approveHash };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Source-chain bridge tx failed.";
+    params.onStep?.({ step: "send", status: "failed", error: message });
+    try {
+      await ensureAristotleNetwork();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
 }
 
 async function ensureChain(params: {
