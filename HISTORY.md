@@ -95,6 +95,8 @@ Proven against the API and (pre-Vercel) hosted Flow:
 
 Re-check after Vercel API-base fix: SPA `/`, `/flow`, `/verify/:id` must call `beacon-0g-api.onrender.com`, not Vercel origin.
 
+Jobs desk honesty (2026-09-02, commit `34932dc`): quote is **0.047771 0G** for `z-image-turbo` (not `$`), settlement copy is `lockNative` (not ERC-20 `lockFrom`). Verified on Vercel desktop and mobile. Approve stays disabled until the user connects a wallet.
+
 ### 8. Git
 
 Public `main` at https://github.com/goat-dev8/beacon-0g.git. GitHub Actions workflow is `.github/workflows/ci.yml` (green on `488aac7`).
