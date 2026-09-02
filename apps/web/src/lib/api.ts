@@ -213,27 +213,34 @@ export const api = {
       minOut: string;
       etaSeconds: number;
       feeSummary: string;
+      gasSummary: string | null;
       fromChainId: number;
       toChainId: number;
       approvalAddress: string | null;
       transactionRequest: { to: string; data: string; value: string; chainId: number } | null;
       executableFromBeaconSafe: false;
       executableFromUserWallet: boolean;
+      executionMode: "WALLET_EXECUTABLE" | "SAFE_EXECUTABLE" | "HYBRID";
       requiredSignatures: string[];
+      requiredWallet: string;
+      recipient: string;
       honesty: string;
       quoteId: string;
+      quotedAt: string;
     }>("/v1/bridge/quote", {
       method: "POST",
       body: JSON.stringify({ text, wallet }),
     }),
-  lifiBridgeStatus: (txHash: string, fromChainId: number) =>
+  lifiBridgeStatus: (txHash: string, fromChainId: number, toChainId?: number) =>
     request<{
       status: string;
       sendingTx: string | null;
       receivingTx: string | null;
       complete: boolean;
       honesty: string;
-    }>(`/v1/bridge/status?txHash=${encodeURIComponent(txHash)}&fromChainId=${fromChainId}`),
+    }>(
+      `/v1/bridge/status?txHash=${encodeURIComponent(txHash)}&fromChainId=${fromChainId}${toChainId ? `&toChainId=${toChainId}` : ""}`,
+    ),
   flowSpend: (wallet: string) =>
     request<{
       ok: boolean;

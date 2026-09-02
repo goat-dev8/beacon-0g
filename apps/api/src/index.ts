@@ -960,7 +960,7 @@ app.get("/v1/bridge/catalog", async () => ({
   executableFromBeaconSafe: false,
   routes: BRIDGE_CATALOG,
   honesty:
-    "Official 0G docs: XSwap (CCIP) and LI.FI (chain key zerog). Beacon Safe cannot sign a source-chain tx. Say “Bridge 1 USDC from Base to 0G” for a live LI.FI quote.",
+    "Official 0G docs: XSwap (CCIP) and LI.FI (chain key zerog). Beacon quotes live LI.FI in the requested direction. The Safe cannot sign a source-chain tx.",
 }));
 
 app.post("/v1/bridge/quote", async (req) => {
@@ -973,18 +973,29 @@ app.post("/v1/bridge/quote", async (req) => {
   const intent = parseBridgeIntent(body.text);
   if (!intent) {
     throw new AppError("NO_FIT", {
-      message: "Name a source chain Beacon can quote (Base or Ethereum) and an amount, e.g. Bridge 1 USDC from Base to 0G.",
+      message: "Name an amount, token, and both chains. Example: Bridge 1 USDC from Base to 0G, or Bridge 0.3 0G to USDC on Base.",
     });
+  }
+  if (!intent.supported) {
+    throw new AppError("UNSUPPORTED_ROUTE", { message: intent.unsupportedReason });
   }
   return quoteLifiBridge(intent, getAddress(body.wallet));
 });
 
 app.get("/v1/bridge/status", async (req) => {
-  const q = req.query as { txHash?: string; fromChainId?: string };
+  const q = req.query as { txHash?: string; fromChainId?: string; toChainId?: string };
   if (!q.txHash || !q.fromChainId) {
     throw new AppError("VALIDATION", { message: "txHash and fromChainId are required." });
   }
-  return statusLifiBridge(q.txHash, Number(q.fromChainId));
+  const fromChainId = Number(q.fromChainId);
+  const toChainId = q.toChainId ? Number(q.toChainId) : undefined;
+  if (fromChainId !== 1 && fromChainId !== 8453 && fromChainId !== 16661) {
+    throw new AppError("VALIDATION", { message: "fromChainId must be 16661 (0G), 8453 (Base), or 1 (Ethereum)." });
+  }
+  if (toChainId !== undefined && toChainId !== 1 && toChainId !== 8453 && toChainId !== 16661) {
+    throw new AppError("VALIDATION", { message: "toChainId must be 16661 (0G), 8453 (Base), or 1 (Ethereum)." });
+  }
+  return statusLifiBridge(q.txHash, fromChainId, fetch, toChainId);
 });
 
 app.post("/v1/quote", async (req) => {
@@ -1857,7 +1868,7 @@ app.get("/v1/vault/status", async (req) => {
         address: null,
         note: "BeaconVaultFactory is not configured.",
         honesty: "No Safe until the factory is deployed on Aristotle.",
-        distinction: "Beacon Safe is a native 0G vault, not a Flare AgentVault.",
+        distinction: "Beacon Safe is a native 0G vault.",
         factory: null,
         wallet,
       },
@@ -2238,12 +2249,15 @@ registerMcpRoutes(app, {
     const intent = parseBridgeIntent(text);
     if (!intent) {
       throw new AppError("NO_FIT", {
-        message: "Name a source chain Beacon can quote (Base or Ethereum) and an amount, e.g. Bridge 1 USDC from Base to 0G.",
+        message: "Name an amount, token, and both chains. Example: Bridge 1 USDC from Base to 0G, or Bridge 0.3 0G to USDC on Base.",
       });
+    }
+    if (!intent.supported) {
+      throw new AppError("UNSUPPORTED_ROUTE", { message: intent.unsupportedReason });
     }
     return quoteLifiBridge(intent, getAddress(wallet));
   },
-  statusBridge: (txHash, fromChainId) => statusLifiBridge(txHash, fromChainId),
+  statusBridge: (txHash, fromChainId, toChainId) => statusLifiBridge(txHash, fromChainId, fetch, toChainId),
   executeSafeSwap: (input) => runSafeZiaSwap(input),
   listJobs: (wallet) => listJobsForWallet(wallet),
   listHistory: async (wallet) => {
@@ -2586,8 +2600,25 @@ app.post("/v1/flow/chat", async (req) => {
     if (!intent) {
       return {
         reply:
-          "Name a source chain and amount. Example: Bridge 1 USDC from Base to 0G. Beacon Safe cannot sign Base.",
+          "Name an amount and both chains. Example: Bridge 1 USDC from Base to 0G, or Bridge 0.3 0G to USDC on Base. Beacon Safe cannot sign a source-chain tx.",
         cards: [bridgeCatalogCard()],
+      };
+    }
+    if (!intent.supported) {
+      return {
+        reply: intent.unsupportedReason ?? "That route is not currently supported.",
+        cards: [
+          {
+            type: "bridge_unsupported",
+            title: "UNSUPPORTED_ROUTE",
+            reason: intent.unsupportedReason,
+            source: intent.sourceName,
+            destination: intent.destName,
+            assetIn: intent.fromSymbol,
+            assetOut: intent.toSymbol,
+            amountIn: intent.amountDisplay,
+          },
+        ],
       };
     }
     if (!body.wallet) {
@@ -2599,22 +2630,28 @@ app.post("/v1/flow/chat", async (req) => {
     try {
       const card = await quoteLifiBridge(intent, getAddress(body.wallet));
       return {
-        reply: `${card.title}. ~${card.estimatedOut} ${card.assetOut} on Aristotle in ~${card.etaSeconds}s. ${card.requiredSignatures[0]}`,
-        cards: [card, bridgeCatalogCard()],
+        reply: `${card.title}. You send ${card.amountIn} ${card.assetIn}. Estimated receive ~${card.estimatedOut} ${card.assetOut} in ~${card.etaSeconds}s. ${card.requiredWallet}`,
+        cards: [card],
       };
     } catch (err) {
       return {
         reply: isAppError(err)
           ? err.userMessage
-          : "LI.FI could not quote this route. Beacon will not invent a bridge.",
-        cards: [bridgeCatalogCard()],
+          : "LI.FI could not quote this route. Beacon will not invent a bridge or reverse the direction.",
+        cards: [
+          {
+            type: "bridge_unsupported",
+            title: "UNSUPPORTED_ROUTE",
+            reason: isAppError(err) ? err.userMessage : "No executable route.",
+          },
+        ],
       };
     }
   }
   if (/\bbridge\b/.test(text)) {
     return {
       reply:
-        "Beacon cannot execute a bridge from the Aristotle Safe. Official path: XSwap/CCIP or LI.FI (zerog). Sign on the source chain. Example: Bridge 1 USDC from Base to 0G.",
+        "Beacon cannot execute a bridge from the Aristotle Safe. Live LI.FI quotes: USDC Base or Ethereum → 0G, and native 0G → USDC on Base. Sign on the source chain. Beacon will not reverse a requested direction.",
       cards: [bridgeCatalogCard()],
     };
   }

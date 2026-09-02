@@ -208,8 +208,7 @@ export function ActionCard({
       <div className="rounded-2xl border border-amber-500/30 bg-[var(--p-card)] p-4">
         <p className="font-mono text-[11px] uppercase tracking-widest text-amber-200">Not on 0G</p>
         <p className="mt-2 text-sm text-[var(--p-fg)]">
-          FAssets, FTSO, FDC, LayerZero OFT, and x402 are not Beacon 0G rails. Jobs lock native 0G.
-          Optional USDC.e is a quoted Zia swap, fail-closed.
+          That tool is not a Beacon 0G rail. Jobs lock native 0G. Optional USDC.e is a quoted Zia swap, fail-closed.
         </p>
         <button
           type="button"
@@ -308,7 +307,7 @@ export function ActionCard({
     return (
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
         <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
-          {String(card.title ?? "Bridge to 0G")}
+          {String(card.title ?? "Official venues")}
         </p>
         <p className="mt-2 text-sm text-[var(--p-muted)]">{String(card.summary ?? "")}</p>
         <ul className="mt-3 space-y-3">
@@ -316,6 +315,7 @@ export function ActionCard({
             const r = row as {
               venue?: string;
               source?: string;
+              destination?: string;
               href?: string;
               eta?: string;
               assets?: string;
@@ -324,7 +324,7 @@ export function ActionCard({
             return (
               <li key={String(r.venue)} className="rounded-xl border border-[var(--p-border)] px-3 py-2">
                 <p className="text-sm font-medium text-[var(--p-fg)]">
-                  {r.venue} · {r.source} → 0G
+                  {r.venue} · {r.source} → {r.destination ?? "0G"}
                 </p>
                 <p className="mt-1 text-xs text-[var(--p-muted)]">
                   {r.assets} · ETA {r.eta}
@@ -345,23 +345,48 @@ export function ActionCard({
           })}
         </ul>
         <p className="mt-3 text-xs text-amber-200/90">
-          Beacon Safe cannot sign a source-chain tx. Say “Bridge 1 USDC from Base to 0G” for a live LI.FI quote.
+          Beacon Safe cannot sign a source-chain tx. Ask for a live quote in the direction you want: “Bridge 1 USDC from Base to 0G” or “Bridge 0.3 0G to USDC on Base”.
         </p>
+      </div>
+    );
+  }
+
+  if (card.type === "bridge_unsupported") {
+    return (
+      <div className="rounded-2xl border border-[var(--p-danger)]/40 bg-[var(--p-danger)]/10 p-4">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-danger)]">UNSUPPORTED_ROUTE</p>
+        <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.reason ?? "That route is not currently supported.")}</p>
+        {(card.source || card.destination) && (
+          <p className="mt-2 font-mono text-xs text-[var(--p-muted)]">
+            Requested {String(card.amountIn ?? "")} {String(card.assetIn ?? "")} · {String(card.source ?? "?")} → {String(card.destination ?? "?")}
+          </p>
+        )}
       </div>
     );
   }
 
   if (card.type === "bridge_quote") {
     const fromChainId = Number(card.fromChainId ?? 0);
+    const parsedTo = Number(card.toChainId);
+    const toChainId =
+      parsedTo === 1 || parsedTo === 8453 || parsedTo === 16661
+        ? parsedTo
+        : fromChainId === 16661
+          ? 8453
+          : 16661;
     const txReq = card.transactionRequest as
       | { to: string; data: string; value: string; chainId: number }
       | null
       | undefined;
     const canSign = Boolean(wallet && txReq?.to && txReq?.data && card.executableFromUserWallet);
+    const fromToken = typeof card.fromToken === "string" ? card.fromToken : "";
+    const nativeIn = /^0x0+$/i.test(fromToken);
+    const needsApprove = Boolean(card.approvalAddress) && !nativeIn;
     return (
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
-        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
-          {String(card.title ?? "Bridge")}
+        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">BRIDGE</p>
+        <p className="mt-1 text-lg font-medium text-[var(--p-fg)]">
+          [{String(card.assetIn)}] → [{String(card.assetOut)} on {String(card.destination)}]
         </p>
         <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
           <div>
@@ -373,7 +398,7 @@ export function ActionCard({
             <p>{String(card.destination)}</p>
           </div>
           <div>
-            <p className="font-mono text-[10px] text-[var(--p-muted)]">You send</p>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Amount</p>
             <p>
               {String(card.amountIn)} {String(card.assetIn)}
             </p>
@@ -389,21 +414,35 @@ export function ActionCard({
             <p>{String(card.minOut)}</p>
           </div>
           <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Provider</p>
+            <p>{String(card.tool ?? "LI.FI")}</p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Fee</p>
+            <p>{String(card.feeSummary ?? "—")}</p>
+          </div>
+          <div>
             <p className="font-mono text-[10px] text-[var(--p-muted)]">ETA</p>
             <p>~{String(card.etaSeconds)}s</p>
           </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Signing</p>
+            <p>{String(card.executionMode ?? "WALLET_EXECUTABLE")}</p>
+          </div>
+          <div>
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">Quoted at</p>
+            <p className="font-mono text-[11px]">{String(card.quotedAt ?? "—")}</p>
+          </div>
         </dl>
-        <p className="mt-2 text-xs text-[var(--p-muted)]">{String(card.feeSummary ?? "")}</p>
+        {card.gasSummary ? <p className="mt-2 text-xs text-[var(--p-muted)]">{String(card.gasSummary)}</p> : null}
         <p className="mt-2 text-xs text-amber-200/90">{String(card.honesty)}</p>
-        {(card.requiredSignatures as string[] | undefined)?.map((line) => (
-          <p key={line} className="mt-1 text-xs text-[var(--p-fg)]">
-            {line}
-          </p>
-        ))}
+        <p className="mt-1 text-xs text-[var(--p-fg)]">{String(card.requiredWallet ?? card.requiredSignatures?.[0] ?? "")}</p>
         <div className="mt-3 space-y-2">
-          <StatusRow label="Approve USDC" status={approveStatus} hash={approveHash} chainId={fromChainId} />
+          {needsApprove && (
+            <StatusRow label="Approve" status={approveStatus} hash={approveHash} chainId={fromChainId} />
+          )}
           <StatusRow label="Source tx" status={swapStatus} hash={swapHash} chainId={fromChainId} />
-          <StatusRow label="Destination" status={sendStatus} hash={sendHash} chainId={16661} />
+          <StatusRow label="Destination" status={sendStatus} hash={sendHash} chainId={toChainId} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {!wallet && (
@@ -428,8 +467,8 @@ export function ActionCard({
                         value: txReq!.value,
                         chainId: txReq!.chainId,
                       },
-                      approvalAddress: typeof card.approvalAddress === "string" ? card.approvalAddress : null,
-                      fromToken: typeof card.fromToken === "string" ? card.fromToken : undefined,
+                      approvalAddress: needsApprove && typeof card.approvalAddress === "string" ? card.approvalAddress : null,
+                      fromToken: nativeIn ? undefined : fromToken,
                       fromAmount: typeof card.amountAtomic === "string" ? card.amountAtomic : undefined,
                       onStep: (step) => {
                         if (step.step === "approve") {
@@ -450,11 +489,11 @@ export function ActionCard({
                       title: String(card.title ?? "Bridge"),
                       hash: result.sourceHash,
                       explorerUrl: explorerTx(result.sourceHash, fromChainId),
-                      meta: { fromChainId, honesty: "Source confirmed. Destination is not complete yet." },
+                      meta: { fromChainId, toChainId, honesty: "Source confirmed. Destination is not complete yet." },
                     });
                     let destOk = false;
                     for (let i = 0; i < 40; i += 1) {
-                      const st = await api.lifiBridgeStatus(result.sourceHash, fromChainId);
+                      const st = await api.lifiBridgeStatus(result.sourceHash, fromChainId, toChainId);
                       const ready = Boolean(st.complete && st.receivingTx);
                       setSendStatus(ready ? "confirmed" : "pending");
                       if (st.receivingTx) setSendHash(st.receivingTx);
@@ -464,7 +503,7 @@ export function ActionCard({
                           kind: "bridge",
                           title: `${String(card.title ?? "Bridge")} destination`,
                           hash: st.receivingTx!,
-                          explorerUrl: explorerTx(st.receivingTx!, 16661),
+                          explorerUrl: explorerTx(st.receivingTx!, toChainId),
                           meta: { complete: true, source: result.sourceHash },
                         });
                         break;
@@ -488,6 +527,28 @@ export function ActionCard({
               {busy ? "Sign on source chain…" : "Bridge"}
             </button>
           )}
+          {swapHash && sendStatus !== "confirmed" && (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    const st = await api.lifiBridgeStatus(swapHash, fromChainId, toChainId);
+                    setSendStatus(st.complete ? "confirmed" : "pending");
+                    if (st.receivingTx) setSendHash(st.receivingTx);
+                    if (!st.complete) setError(st.honesty);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              Track
+            </button>
+          )}
           {swapHash && (
             <a
               href={explorerTx(swapHash, fromChainId)}
@@ -500,7 +561,7 @@ export function ActionCard({
           )}
           {sendHash && (
             <a
-              href={explorerTx(sendHash, 16661)}
+              href={explorerTx(sendHash, toChainId)}
               target="_blank"
               rel="noreferrer"
               className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
@@ -512,11 +573,11 @@ export function ActionCard({
         {error && <p className="mt-2 text-xs text-[var(--p-danger)]">{error}</p>}
         {swapStatus === "confirmed" && sendStatus !== "confirmed" && (
           <p className="mt-3 text-sm text-[var(--p-fg)]">
-            Source confirmed. Destination is complete only when LI.FI reports DONE with a 0G tx.
+            Source confirmed. Destination is complete only when LI.FI reports DONE with a destination tx for this source hash.
           </p>
         )}
         {sendStatus === "confirmed" && sendHash && (
-          <p className="mt-3 text-sm text-[var(--p-accent-text)]">Destination detected on Aristotle.</p>
+          <p className="mt-3 text-sm text-[var(--p-accent-text)]">Destination detected on {String(card.destination)}.</p>
         )}
       </div>
     );
@@ -759,13 +820,7 @@ export function ActionCard({
         </p>
         <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.note)}</p>
         {card.ftsoGuard ? (
-          <p className="mt-2 text-xs text-signal/90">
-            Live market data used to protect this execution
-            {typeof (card.ftsoGuard as { feedAge?: number }).feedAge === "number"
-              ? ` · FTSO age ${(card.ftsoGuard as { feedAge: number }).feedAge}s`
-              : ""}
-            .
-          </p>
+          <p className="mt-2 text-xs text-signal/90">Live market data used to protect this execution.</p>
         ) : null}
         {card.honesty ? <p className="mt-2 text-xs text-amber-200/90">{String(card.honesty)}</p> : null}
         <FccHardwareStrip card={card} />

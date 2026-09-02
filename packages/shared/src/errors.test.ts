@@ -20,7 +20,8 @@ describe("structured errors", () => {
     expect(userMessageForCode("STORAGE_FAILED")).toMatch(/Storage/i);
     expect(userMessageForCode("COMPUTE_FAILED")).toMatch(/not been charged/i);
     expect(userMessageForCode("OFFER_EXPIRED")).toMatch(/expired/i);
-    expect(new AppError("SWAP_REFUSED").statusCode).toBe(400);
+    expect(new AppError("UNSUPPORTED_ROUTE").statusCode).toBe(400);
+    expect(userMessageForCode("UNSUPPORTED_ROUTE")).toMatch(/not currently supported/i);
     expect(new AppError("TEE_DENIED").statusCode).toBe(403);
   });
 });

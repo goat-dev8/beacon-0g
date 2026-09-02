@@ -43,7 +43,7 @@ import {
 import { quoteZiaPair } from "@beacon/swap";
 import type { RedisRest } from "./flowRedis.js";
 import { redisLikeFromRest } from "./mcpRedis.js";
-import { extractBridgeFromChainId, extractBridgeTxHash } from "./lifiBridge.js";
+import { extractBridgeFromChainId, extractBridgeToChainId, extractBridgeTxHash } from "./lifiBridge.js";
 
 type JobLite = {
   id: string;
@@ -97,6 +97,7 @@ export type McpRouteDeps = {
   statusBridge?: (
     txHash: string,
     fromChainId: number,
+    toChainId?: number,
   ) => Promise<{
     status: string;
     sendingTx: string | null;
@@ -1005,12 +1006,13 @@ async function runMcpTool(
   if (name === "track_bridge") {
     const hash = extractBridgeTxHash(args);
     if (!hash) {
-      return "Pass txHash (0x + 64 hex) and fromChainId (8453 Base or 1 Ethereum). Destination is complete only when LI.FI reports DONE with a dest tx.";
+      return "Pass txHash (0x + 64 hex) and fromChainId (16661 0G, 8453 Base, or 1 Ethereum). Destination is complete only when LI.FI reports DONE with a dest tx for this source hash.";
     }
     if (!deps.statusBridge) {
       return "Bridge status is not wired on this API process.";
     }
     const fromChainId = extractBridgeFromChainId(args);
+    const toChainId = extractBridgeToChainId(args, fromChainId);
     let st: {
       status: string;
       sendingTx: string | null;
@@ -1019,7 +1021,7 @@ async function runMcpTool(
       honesty: string;
     };
     try {
-      st = await deps.statusBridge(hash, fromChainId);
+      st = await deps.statusBridge(hash, fromChainId, toChainId);
     } catch (err) {
       const message = isAppError(err)
         ? err.userMessage
@@ -1078,11 +1080,15 @@ async function runMcpTool(
     }
     try {
       const quoted = await deps.quoteBridge(String(args.text ?? ""), grant.wallet);
+      const title =
+        quoted && typeof quoted === "object" && "title" in quoted && typeof quoted.title === "string"
+          ? quoted.title
+          : "MCP bridge quote";
       if (deps.recordActivity) {
         await deps.recordActivity(
           grant.wallet,
           "bridge",
-          `MCP bridge quote`,
+          title,
           {
             agent: grant.clientLabel,
             session: grant.id,

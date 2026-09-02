@@ -167,10 +167,7 @@ function buildExplorerLinks(
     });
   }
   if (cardType === "bridge_prepare" && exec?.sendHash) {
-    // Bridge source always Aristotle.
     links.push({ label: `Source tx · ${explorerLabel(chainId)}`, href: explorerTx(exec.sendHash, chainId) });
-    const lzBase = String(card.layerZeroScanBase ?? "https://testnet.layerzeroscan.com/tx/");
-    links.push({ label: "LayerZero Scan", href: `${lzBase}${exec.sendHash}` });
   }
   if (cardType === "media_result" && typeof card.paymentTxHint === "string" && card.paymentTxHint) {
     links.push({ label: "Settlement · Aristotle", href: explorerTx(card.paymentTxHint, 16661) });

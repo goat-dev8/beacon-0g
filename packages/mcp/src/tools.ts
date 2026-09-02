@@ -268,7 +268,7 @@ export const MCP_TOOL_DEFS: McpToolDef[] = [
   {
     name: "bridge",
     description:
-      "Live LI.FI quote for USDC Base/Ethereum → 0G. Beacon Safe cannot sign the source chain. Returns the unsigned request.",
+      "Live LI.FI quote in the requested direction (USDC Base/Ethereum → 0G, or native 0G → USDC on Base). Safe cannot sign. Returns the unsigned request or UNSUPPORTED_ROUTE.",
     scope: "exec:bridge",
     inputSchema: {
       type: "object",
@@ -281,7 +281,7 @@ export const MCP_TOOL_DEFS: McpToolDef[] = [
   },
   {
     name: "quote_bridge",
-    description: "Same as bridge — live source-chain quote. Safe cannot sign Base/Ethereum.",
+    description: "Same as bridge — live quote in the requested direction. Safe cannot sign the source chain.",
     scope: "exec:bridge",
     inputSchema: {
       type: "object",

@@ -145,7 +145,8 @@ export async function executeLifiBridge(params: {
   if (!from) throw new Error("Wallet returned no account.");
 
   let approveHash: Hex | undefined;
-  if (params.approvalAddress && params.fromToken && params.fromAmount) {
+  const nativeToken = !params.fromToken || /^0x0+$/i.test(params.fromToken);
+  if (!nativeToken && params.approvalAddress && params.fromToken && params.fromAmount) {
     const spender = getAddress(params.approvalAddress);
     const token = getAddress(params.fromToken);
     const amount = BigInt(params.fromAmount);

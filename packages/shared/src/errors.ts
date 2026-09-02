@@ -20,6 +20,7 @@ export type ErrorCode =
   | "CREDIT_PREP_FAILED"
   | "TEE_DENIED"
   | "SWAP_REFUSED"
+  | "UNSUPPORTED_ROUTE"
   | "STORAGE_FAILED"
   | "COMPUTE_FAILED"
   | "INSUFFICIENT_TREASURY"
@@ -48,6 +49,7 @@ const USER_MESSAGES: Record<ErrorCode, string> = {
   CREDIT_PREP_FAILED: "We couldn't prepare the add-credit flow. Please try again.",
   TEE_DENIED: "Beacon refused this action. Policy or verification did not allow it.",
   SWAP_REFUSED: "Beacon refused this swap because verified liquidity is insufficient.",
+  UNSUPPORTED_ROUTE: "That route is not currently supported. Beacon will not quote the opposite direction.",
   STORAGE_FAILED: "We could not store evidence on 0G Storage. The job will not be marked complete.",
   COMPUTE_FAILED: "0G Compute did not return a usable result. You have not been charged for a pass.",
   INSUFFICIENT_TREASURY:
@@ -72,6 +74,7 @@ function statusForCode(code: ErrorCode): number {
     case "OFFER_EXPIRED":
     case "INVALID_TRANSITION":
     case "SWAP_REFUSED":
+    case "UNSUPPORTED_ROUTE":
     case "ENV_INVALID":
       return 400;
     case "PAYMENT_REQUIRED":

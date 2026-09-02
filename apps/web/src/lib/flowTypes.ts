@@ -92,6 +92,7 @@ export const LIVE_CARD_TYPES = new Set([
   "bridge_quote",
   "bridge_prepare",
   "bridge_catalog",
+  "bridge_unsupported",
   "media_clarify",
   "x402_quote",
   "media_result",

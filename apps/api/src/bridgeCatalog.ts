@@ -1,6 +1,6 @@
 export type BridgeRoute = {
   source: string;
-  destination: "0G Aristotle";
+  destination: string;
   assets: string;
   venue: string;
   href: string;
@@ -11,6 +11,17 @@ export type BridgeRoute = {
 
 /** Official 0G docs + Zia venues. Beacon Safe cannot sign a source-chain CCIP/Stargate tx. */
 export const BRIDGE_CATALOG: BridgeRoute[] = [
+  {
+    source: "0G Aristotle",
+    destination: "Base",
+    assets: "native 0G → USDC",
+    venue: "LI.FI (live quote)",
+    href: "https://jumper.exchange/?fromChain=16661&toChain=8453",
+    eta: "live quote",
+    executableFromBeaconSafe: false,
+    reason:
+      "LI.FI quotes native 0G → USDC on Base. The user wallet signs on Aristotle. Beacon Safe is not a LI.FI signer.",
+  },
   {
     source: "Base / Ethereum",
     destination: "0G Aristotle",
@@ -87,8 +98,8 @@ export const BRIDGE_CATALOG: BridgeRoute[] = [
 export function bridgeCatalogCard() {
   return {
     type: "bridge_catalog",
-    title: "Bridge to 0G",
-    summary: "Real venues. Beacon will not mark a bridge complete from a source tx it did not track on 0G.",
+    title: "Official venues",
+    summary: "Live LI.FI quotes stay in the requested direction. Beacon will not reverse 0G → Base into Base → 0G.",
     routes: BRIDGE_CATALOG,
   };
 }

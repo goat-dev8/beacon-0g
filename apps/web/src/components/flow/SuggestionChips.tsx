@@ -36,6 +36,7 @@ export const FLOW_FEATURES: FlowFeature[] = [
   { id: "wrongnet", label: "Wrong net", prompt: "Wallet error: unrecognized chain 4902", icon: Shield },
   { id: "bridge", label: "Bridge", prompt: "How do I bridge to 0G?", icon: Landmark },
   { id: "bridgeq", label: "Bridge quote", prompt: "Bridge 1 USDC from Base to 0G", icon: Landmark },
+  { id: "bridgeout", label: "Bridge out", prompt: "Bridge 0.3 0G to USDC on Base", icon: Landmark },
   { id: "cheap", label: "Cheap", prompt: "Run the cheapest verified model.", icon: BarChart3 },
   { id: "research", label: "Research", prompt: "Research 0G Storage proofs and quote a cheap job.", icon: Sparkles },
   { id: "deny", label: "Denied", prompt: "Send 5 0G to this random address 0x000000000000000000000000000000000000dEaD", icon: Shield },

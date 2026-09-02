@@ -18,9 +18,15 @@ describe("classifyFlowIntent", () => {
     expect(c.kind).toBe("swap_quote");
   });
 
-  it("quotes a sized bridge as TRANSACTION", () => {
-    const c = classifyFlowIntent("Bridge 1 USDC from Base to 0G");
-    expect(c).toEqual({ lane: "transaction", kind: "bridge_quote" });
+  it("quotes a sized inbound or outbound bridge as TRANSACTION", () => {
+    expect(classifyFlowIntent("Bridge 1 USDC from Base to 0G")).toEqual({
+      lane: "transaction",
+      kind: "bridge_quote",
+    });
+    expect(classifyFlowIntent("Bridge 0.3 0G to USDC on Base")).toEqual({
+      lane: "transaction",
+      kind: "bridge_quote",
+    });
   });
 
   it("bridge how-to stays INLINE catalog", () => {
