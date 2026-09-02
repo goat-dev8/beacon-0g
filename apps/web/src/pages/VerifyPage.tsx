@@ -38,6 +38,9 @@ type VerifyPayload = {
     releaseTx?: string | null;
     refundTx?: string | null;
     receiptTx?: string | null;
+    feedbackTx?: string | null;
+    feedbackIndex?: string | null;
+    feedbackClient?: string | null;
     storageRoot?: string | null;
     storageScan?: string | null;
     resultText?: string | null;
@@ -350,6 +353,17 @@ export function VerifyPage() {
                   value={job?.receiptTx}
                   href={job?.receiptTx ? explorerTx(job.receiptTx) : undefined}
                 />
+                <HashRow
+                  label="Reputation feedback"
+                  value={job?.feedbackTx}
+                  href={job?.feedbackTx ? explorerTx(job.feedbackTx) : undefined}
+                />
+                {job?.feedbackIndex && (
+                  <Meta
+                    label="Feedback index"
+                    value={`#${job.feedbackIndex}${job.feedbackClient ? ` · ${job.feedbackClient}` : ""}`}
+                  />
+                )}
                 <HashRow label="Storage root" value={storageRoot} href={storageHref ?? undefined} />
                 <HashRow
                   label="TEE signer"

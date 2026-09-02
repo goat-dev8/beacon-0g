@@ -27,6 +27,10 @@ export const ZEROG_INFERENCE = "0x47340d900bdFec2BD393c626E12ea0656F938d84";
 
 export const ERC8004_IDENTITY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
 export const ERC8004_REPUTATION = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63";
+/** Beacon desk agent minted on IdentityRegistry. Owner cannot self-feedback. */
+export const ERC8004_AGENT_ID = 3531902n;
+/** Official giveFeedback selector (8-arg spec). Implementation bytecode, not the 130-byte proxy. */
+export const ERC8004_GIVE_FEEDBACK_SELECTOR = "0x3c036a7e";
 
 /** 1e18 neuron = 1 0G (Compute Router `pricing`). */
 export const NEURONS_PER_0G = 10n ** 18n;

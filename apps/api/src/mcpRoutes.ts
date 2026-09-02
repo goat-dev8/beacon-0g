@@ -7,6 +7,7 @@ import {
   appendAudit,
   buildCursorMcpConfig,
   buildSetupPrompt,
+  buildConnectCard,
   checkRateLimit,
   filterValidScopes,
   gateTool,
@@ -68,6 +69,10 @@ export type McpRouteDeps = {
     brief: string;
     serviceId?: string;
   }) => Promise<JobLite>;
+  lockAndRunJob?: (input: { jobId: string; wallet: string }) => Promise<JobLite>;
+  inspectAddress?: (addr: string) => Promise<unknown>;
+  inspectTransaction?: (hash: string) => Promise<unknown>;
+  quoteBridge?: (text: string, wallet: string) => Promise<unknown>;
   executeSafeSwap?: (input: {
     wallet: string;
     amountInUnits: string;
@@ -94,6 +99,8 @@ function toPublic(grant: McpGrant) {
     clientKind: grant.clientKind,
     clientLabel: grant.clientLabel,
     scopes: grant.scopes,
+    maxSpendPerTx0g: grant.maxSpendPerTx0g,
+    dailyLimit0g: grant.dailyLimit0g,
     maxSpendPerTxUsdt0: grant.maxSpendPerTx0g,
     dailyLimitUsdt0: grant.dailyLimit0g,
     createdAt: grant.createdAt,
@@ -131,6 +138,20 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
     redis: Boolean(deps.redis),
     endpoint: deps.redis ? mcpEndpoint : "",
     connectPage: "/flow/mcp",
+    chainId: deps.env.CHAIN_ID,
+    authorization: "Bearer MCP access token",
+  }));
+
+  app.get("/mcp", async () => ({
+    ok: true,
+    name: "beacon-mcp",
+    version: "0.2.0",
+    chainId: deps.env.CHAIN_ID,
+    transport: "http jsonrpc",
+    endpoint: mcpEndpoint,
+    authorization: "Bearer",
+    connectPage: "/flow/mcp",
+    honesty: "POST /mcp with Authorization: Bearer <access>. The agent never receives a private key.",
   }));
 
   app.get("/v1/mcp/grants", async (req) => {
@@ -148,10 +169,12 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
         wallet: z.string().min(42),
         clientKind: z.enum(["claude", "cursor", "generic"]),
         clientLabel: z.string().max(80).optional(),
-        scopes: z.array(z.string()).optional(),
+    scopes: z.array(z.string()).optional(),
+        maxSpendPerTx0g: z.number().nonnegative().optional(),
+        dailyLimit0g: z.number().nonnegative().optional(),
         maxSpendPerTxUsdt0: z.number().nonnegative().optional(),
         dailyLimitUsdt0: z.number().nonnegative().optional(),
-        ttlHours: z.number().positive().max(24 * 14).optional(),
+        ttlHours: z.number().positive().max(24 * 30).optional(),
       })
       .parse(req.body);
     deps.requireWalletSession(req, body.wallet);
@@ -166,10 +189,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
       clientKind: body.clientKind as McpClientKind,
       clientLabel: body.clientLabel || body.clientKind,
       scopes: scopes.length ? scopes : [...DEFAULT_CONNECT_SCOPES],
-      maxSpendPerTx0g: body.maxSpendPerTxUsdt0 ?? 1,
-      dailyLimit0g: body.dailyLimitUsdt0 ?? 5,
+      maxSpendPerTx0g: Math.min(body.maxSpendPerTx0g ?? body.maxSpendPerTxUsdt0 ?? 5, 5),
+      dailyLimit0g: Math.min(body.dailyLimit0g ?? body.dailyLimitUsdt0 ?? 20, 20),
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + (body.ttlHours ?? 24) * 3600 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + (body.ttlHours ?? 24 * 7) * 3600 * 1000).toISOString(),
       revokedAt: null,
       refreshTokenHash: null,
     };
@@ -191,6 +214,17 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
       apiBase: deps.env.API_URL,
       accessToken: access.token,
     });
+    const connectCard = buildConnectCard({
+      mcpEndpoint,
+      accessToken: access.token,
+      wallet: grant.wallet,
+      safeAddress: grant.safeAddress,
+      chainId: deps.env.CHAIN_ID,
+      scopes: grant.scopes,
+      maxSpendPerTx0g: grant.maxSpendPerTx0g,
+      dailyLimit0g: grant.dailyLimit0g,
+      expiresAt: grant.expiresAt,
+    });
     return {
       ok: true,
       grant: toPublic(grant),
@@ -199,7 +233,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
       refreshToken,
       mcpEndpoint,
       cursorConfig,
-      setupPrompt: buildSetupPrompt({
+      connectCard,
+      setupPrompt: [connectCard, "", buildSetupPrompt({
         apiBase: deps.env.API_URL,
         webBase: deps.env.APP_URL,
         grantId: grant.id,
@@ -214,8 +249,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
         refreshToken,
         mcpEndpoint,
         cursorConfig,
-      }),
-      warning: "Access and refresh tokens are shown once. Revoke the grant if they leak.",
+      })].join("\n"),
+      warning: "Access and refresh tokens are shown once. Revoke the grant if they leak. The agent never receives a private key.",
     };
   });
 
@@ -447,14 +482,42 @@ async function runMcpTool(
         brief,
         serviceId: name === "generate_image" ? "image" : String(args.service ?? "research"),
       });
+      const lock0g = Number(format0g(job.quote.lock0g).replace(/ 0G$/, ""));
+      if (lock0g > grant.maxSpendPerTx0g + 1e-18) {
+        return `MCP_TX_LIMIT: quoted ${lock0g} 0G exceeds grant max ${grant.maxSpendPerTx0g} 0G.`;
+      }
+      let ran: JobLite = job;
+      if (deps.lockAndRunJob && grant.safeAddress) {
+        try {
+          ran = await deps.lockAndRunJob({ jobId: job.id, wallet: grant.wallet });
+        } catch (err) {
+          return JSON.stringify(
+            {
+              jobId: job.id,
+              status: job.status,
+              quoted: format0g(job.quote.lock0g),
+              modelId: job.quote.modelId,
+              honesty: isAppError(err)
+                ? err.userMessage
+                : "Quoted. Safe lock failed. Open the job in Flow — MCP does not skip TeeML or policy.",
+            },
+            null,
+            2,
+          );
+        }
+      }
       return JSON.stringify(
         {
-          jobId: job.id,
-          status: job.status,
-          modelId: job.quote.modelId,
-          lock0g: format0g(job.quote.lock0g),
-          desk: `/flow/desk?job=${job.id}`,
-          honesty: "Quoted only. Lock native 0G in escrow from Jobs to run Compute. MCP does not skip TeeML or policy.",
+          jobId: ran.id,
+          status: ran.status,
+          modelId: ran.quote.modelId,
+          lock0g: format0g(ran.quote.lock0g),
+          lockTx: ran.lockTx ?? null,
+          proof: `/verify/${ran.id}`,
+          desk: `/flow/desk?job=${ran.id}`,
+          honesty: ran.lockTx
+            ? "Locked from Beacon Safe by the allowlisted executor. The MCP token is not a private key. Compute runs asynchronously — call get_job."
+            : "Quoted only. No Safe is linked, so Beacon will not invent a lock. Create a Safe at /flow/security.",
         },
         null,
         2,
@@ -492,6 +555,28 @@ async function runMcpTool(
       return JSON.stringify(result, null, 2);
     } catch (err) {
       return isAppError(err) ? err.userMessage : "Swap failed.";
+    }
+  }
+  if (name === "inspect") {
+    const addr = String(args.address ?? "");
+    const txHash = String(args.txHash ?? "");
+    if (txHash.startsWith("0x") && txHash.length >= 66 && deps.inspectTransaction) {
+      return JSON.stringify(await deps.inspectTransaction(txHash), null, 2);
+    }
+    if (addr.startsWith("0x") && addr.length === 42 && deps.inspectAddress) {
+      return JSON.stringify(await deps.inspectAddress(addr), null, 2);
+    }
+    return "Pass address (0x + 40 hex) or txHash (0x + 64 hex).";
+  }
+  if (name === "bridge") {
+    if (!deps.quoteBridge) {
+      return "Bridge quotes are not wired on this API process.";
+    }
+    try {
+      const quoted = await deps.quoteBridge(String(args.text ?? ""), grant.wallet);
+      return JSON.stringify(quoted, null, 2);
+    } catch (err) {
+      return isAppError(err) ? err.userMessage : "Bridge quote failed.";
     }
   }
   if (name === "pause_safe") {

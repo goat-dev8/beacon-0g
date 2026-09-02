@@ -1,0 +1,26 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Beacon 0G",
+  "description": "Spend-bounded AI execution desk on 0G Aristotle (16661). External agents connect through Beacon MCP with a scoped grant, spend cap, and TTL. The agent never receives a private key. Jobs run through Beacon Safe, policy, TeeML, Compute, Storage, and on-chain receipts.",
+  "image": "https://beacon-0g.vercel.app/icons.svg",
+  "services": [
+    {
+      "name": "web",
+      "endpoint": "https://beacon-0g.vercel.app/"
+    },
+    {
+      "name": "MCP",
+      "endpoint": "https://beacon-0g-api.onrender.com/mcp",
+      "version": "2025-03-26"
+    }
+  ],
+  "x402Support": false,
+  "active": true,
+  "registrations": [
+    {
+      "agentId": 3531902,
+      "agentRegistry": "eip155:16661:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    }
+  ],
+  "supportedTrust": ["reputation", "tee-attestation"]
+}

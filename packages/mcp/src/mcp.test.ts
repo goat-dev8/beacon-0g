@@ -10,6 +10,7 @@ import {
 } from "./tokens.js";
 import { isGrantActive, type McpGrant } from "./grants.js";
 import { gateTool } from "./tools.js";
+import { buildConnectCard } from "./index.js";
 
 const secret = "test-session-secret-for-mcp";
 
@@ -40,12 +41,9 @@ describe("mcp scopes", () => {
   });
 
   it("includes 0G exec scopes", () => {
-    expect(filterValidScopes(["exec:infer", "exec:image", "exec:pause", "read:receipts"])).toEqual([
-      "exec:infer",
-      "exec:image",
-      "exec:pause",
-      "read:receipts",
-    ]);
+    expect(
+      filterValidScopes(["exec:infer", "exec:image", "exec:bridge", "exec:inspect", "read:receipts"]),
+    ).toEqual(["exec:infer", "exec:image", "exec:bridge", "exec:inspect", "read:receipts"]);
   });
 });
 
@@ -157,5 +155,25 @@ describe("mcp policy gate", () => {
   it("hasScope works", () => {
     expect(hasScope(["read:safe"], "read:safe")).toBe(true);
     expect(hasScope(["read:safe"], "exec:swap")).toBe(false);
+  });
+
+  it("builds a copyable connect card", () => {
+    const card = buildConnectCard({
+      mcpEndpoint: "https://beacon-0g-api.onrender.com/mcp",
+      accessToken: "tok_test",
+      wallet: "0x18398aA1dFdA63F30529c46E90ac41c1E75F7Ecf",
+      safeAddress: "0x6A3388D833C09a00DDbbD4e1a6c11C9623717A30",
+      chainId: 16661,
+      scopes: ["read:safe", "exec:job"],
+      maxSpendPerTx0g: 5,
+      dailyLimit0g: 20,
+      expiresAt: "2026-09-09T00:00:00.000Z",
+    });
+    expect(card).toContain("BEACON MCP");
+    expect(card).toContain("Bearer tok_test");
+    expect(card).toContain("16661");
+    expect(card).toContain("5 0G");
+    expect(card).toContain("20 0G");
+    expect(card).toContain("Paste this into your MCP client configuration.");
   });
 });

@@ -18,6 +18,7 @@ import {
   newId,
   parse0g,
   transition,
+  ERC8004_AGENT_ID,
 } from "@beacon/shared";
 import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } from "@beacon/quote";
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
@@ -36,7 +37,14 @@ import { inspectAddress, inspectTransaction } from "./inspect.js";
 import { BEACON_CAPABILITIES, capabilityCard } from "./capabilities.js";
 import { BRIDGE_CATALOG, bridgeCatalogCard } from "./bridgeCatalog.js";
 import { historyMeta } from "./historyMeta.js";
-import { encodeGiveFeedback, probeErc8004 } from "./erc8004.js";
+import {
+  canonicalFeedback,
+  encodeOfficialGiveFeedback,
+  encodeSetAgentUri,
+  feedbackClientWallet,
+  parseNewFeedback,
+  probeErc8004,
+} from "./erc8004.js";
 import { registerMcpRoutes } from "./mcpRoutes.js";
 import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
 import { classifyFlowIntent, wantsPaidExplanation } from "./flowRouter.js";
@@ -69,12 +77,12 @@ async function aristotleFees() {
   });
 }
 
-async function sendSettlerTx(tx: { to: string; data: string; value?: bigint }) {
+async function sendSettlerTx(tx: { to: string; data?: string; value?: bigint }) {
   if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
   const fees = await aristotleFees();
   return settler.sendTransaction({
     to: tx.to,
-    data: tx.data,
+    data: tx.data ?? "0x",
     value: tx.value ?? 0n,
     maxFeePerGas: fees.maxFeePerGas,
     maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
@@ -139,6 +147,9 @@ type StoredJob = {
   releaseTx?: string;
   refundTx?: string;
   receiptTx?: string;
+  feedbackTx?: string;
+  feedbackIndex?: string;
+  feedbackClient?: string;
   storageRoot?: string;
   resultText?: string;
   imageB64?: string;
@@ -316,6 +327,9 @@ function serializeJob(job: StoredJob) {
     releaseTx: job.releaseTx ?? null,
     refundTx: job.refundTx ?? null,
     receiptTx: job.receiptTx ?? null,
+    feedbackTx: job.feedbackTx ?? null,
+    feedbackIndex: job.feedbackIndex ?? null,
+    feedbackClient: job.feedbackClient ?? null,
     storageRoot: job.storageRoot ?? null,
     storageScan: job.storageRoot
       ? `${env.ZEROG_STORAGE_SCAN.replace(/\/$/, "")}/?root=${job.storageRoot}`
@@ -328,6 +342,7 @@ function serializeJob(job: StoredJob) {
       lock: job.lockTx ? explorerTx(job.lockTx) : null,
       release: job.releaseTx ? explorerTx(job.releaseTx) : null,
       refund: job.refundTx ? explorerTx(job.refundTx) : null,
+      feedback: job.feedbackTx ? explorerTx(job.feedbackTx) : null,
     },
   };
 }
@@ -335,6 +350,121 @@ function serializeJob(job: StoredJob) {
 function emitEvent(job: StoredJob, type: string, payload: unknown) {
   job.events.push({ type, payload, ts: new Date().toISOString() });
   void persistJob(job);
+}
+
+function agentRegistrationFile() {
+  const api = env.API_URL.replace(/\/$/, "");
+  const web = env.APP_URL.replace(/\/$/, "");
+  return {
+    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    name: "Beacon 0G",
+    description:
+      "Spend-bounded AI execution desk on 0G Aristotle. External agents connect via MCP with a scoped grant. The agent never receives a private key.",
+    image: `${web}/icons.svg`,
+    services: [
+      { name: "web", endpoint: web },
+      { name: "MCP", endpoint: `${api}/mcp`, version: "2025-03-26" },
+    ],
+    x402Support: false,
+    active: true,
+    registrations: [
+      {
+        agentId: Number(ERC8004_AGENT_ID),
+        agentRegistry: `eip155:${env.CHAIN_ID}:${env.ERC8004_IDENTITY}`,
+      },
+    ],
+    supportedTrust: ["reputation", "tee-attestation"],
+  };
+}
+
+async function recordJobFeedback(job: StoredJob): Promise<void> {
+  if (job.feedbackTx) return;
+  if (!settler) return;
+  const outcome: "successful_job" | "failed_job" | null = job.releaseTx
+    ? "successful_job"
+    : job.refundTx
+      ? "failed_job"
+      : null;
+  if (!outcome) return;
+  try {
+    const status = await probeErc8004(provider, {
+      identity: env.ERC8004_IDENTITY,
+      reputation: env.ERC8004_REPUTATION,
+      ownerCandidate: settler.address,
+    });
+    if (status.giveFeedback !== "REAL") {
+      emitEvent(job, "feedback_skipped", { reason: status.honesty });
+      return;
+    }
+    if (
+      settler &&
+      status.agentOwner &&
+      settler.address.toLowerCase() === status.agentOwner.toLowerCase() &&
+      !status.tokenURI
+    ) {
+      const cardUri = `${env.APP_URL.replace(/\/$/, "")}/.well-known/agent-card.json`;
+      const uriTx = await sendSettlerTx({
+        to: status.identity,
+        data: encodeSetAgentUri(BigInt(status.agentId), cardUri),
+      });
+      await waitSettlerTx(uriTx);
+    }
+    const client = feedbackClientWallet(env.SESSION_SECRET).connect(provider);
+    if (status.agentOwner && client.address.toLowerCase() === status.agentOwner.toLowerCase()) {
+      emitEvent(job, "feedback_skipped", { reason: "Feedback client would be the agent owner." });
+      return;
+    }
+    const packed = canonicalFeedback({
+      jobId: job.id,
+      task: job.task,
+      outcome,
+      proofUrl: `${env.APP_URL.replace(/\/$/, "")}/verify/${job.id}`,
+      releaseTx: job.releaseTx,
+      refundTx: job.refundTx,
+      receiptTx: job.receiptTx,
+      storageRoot: job.storageRoot,
+    });
+    const data = encodeOfficialGiveFeedback({
+      agentId: BigInt(status.agentId),
+      value: packed.value,
+      tag1: packed.tag1,
+      tag2: packed.tag2,
+      endpoint: `${env.API_URL.replace(/\/$/, "")}/mcp`,
+      feedbackURI: packed.uri,
+      feedbackHash: packed.hash,
+    });
+    await provider.call({ to: status.reputation, from: client.address, data });
+    const bal = await provider.getBalance(client.address);
+    if (bal < parse0g("0.001")) {
+      const fund = await sendSettlerTx({ to: client.address, value: parse0g("0.003") });
+      await waitSettlerTx(fund);
+    }
+    const fees = await aristotleFees();
+    const tx = await client.sendTransaction({
+      to: status.reputation,
+      data,
+      maxFeePerGas: fees.maxFeePerGas,
+      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+    });
+    await waitSettlerTx(tx);
+    const full = await provider.getTransactionReceipt(tx.hash);
+    const parsed = full ? parseNewFeedback(full) : null;
+    job.feedbackTx = tx.hash;
+    job.feedbackIndex = parsed?.feedbackIndex;
+    job.feedbackClient = client.address;
+    emitEvent(job, "erc8004_feedback", {
+      tx: tx.hash,
+      explorer: explorerTx(tx.hash),
+      index: parsed?.feedbackIndex ?? null,
+      client: client.address,
+      outcome,
+      selector: status.workingSelector,
+    });
+  } catch (err) {
+    emitEvent(job, "feedback_failed", {
+      message: err instanceof Error ? err.message.slice(0, 240) : "giveFeedback failed",
+    });
+  }
 }
 
 function deskView(job: StoredJob) {
@@ -623,21 +753,8 @@ app.post("/v1/jobs/:id/approve", async (req) => {
   };
 });
 
-app.post("/v1/jobs/:id/approve-safe", async (req) => {
-  const id = (req.params as { id: string }).id;
-  const job = await getJob(id);
-  if (!job) throw new AppError("JOB_NOT_FOUND");
-  const auth = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  const body = z
-    .object({
-      offerId: z.string().optional(),
-      ownerWallet: z.string().min(42),
-    })
-    .parse(req.body);
-  const session = verifySafeSessionToken(auth, body.ownerWallet, env.SESSION_SECRET);
-  if (!session) throw new AppError("UNAUTHORIZED", { message: "Safe session is missing or expired." });
+async function lockJobViaSafe(job: StoredJob, owner: string): Promise<StoredJob> {
   if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
-  const owner = getAddress(body.ownerWallet);
   const safe = await resolveSafe(owner);
   if (!safe) throw new AppError("NOT_READY", { message: "No Beacon Safe for this wallet." });
   const escrow = await requireEscrow();
@@ -668,16 +785,33 @@ app.post("/v1/jobs/:id/approve-safe", async (req) => {
   emitEvent(job, "locked", { tx: tx.hash, mode: "safe", vault: safe });
   await persistJob(job);
   void pipelineAfterLock(job);
+  return job;
+}
+
+app.post("/v1/jobs/:id/approve-safe", async (req) => {
+  const id = (req.params as { id: string }).id;
+  const job = await getJob(id);
+  if (!job) throw new AppError("JOB_NOT_FOUND");
+  const auth = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const body = z
+    .object({
+      offerId: z.string().optional(),
+      ownerWallet: z.string().min(42),
+    })
+    .parse(req.body);
+  const session = verifySafeSessionToken(auth, body.ownerWallet, env.SESSION_SECRET);
+  if (!session) throw new AppError("UNAUTHORIZED", { message: "Safe session is missing or expired." });
+  await lockJobViaSafe(job, getAddress(body.ownerWallet));
   return {
     jobId: job.id,
     status: job.status,
     offerId: job.quote.quoteId,
     mode: "safe",
-    vault: safe,
-    lockTxHash: tx.hash,
-    spendTxHash: tx.hash,
-    explorerLock: explorerTx(tx.hash),
-    explorerSpend: explorerTx(tx.hash),
+    vault: job.vault,
+    lockTxHash: job.lockTx,
+    spendTxHash: job.lockTx,
+    explorerLock: job.lockTx ? explorerTx(job.lockTx) : null,
+    explorerSpend: job.lockTx ? explorerTx(job.lockTx) : null,
   };
 });
 
@@ -992,6 +1126,8 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
   }
   job.status = JobStatus.CLOSED;
   emitEvent(job, "released", { tx: job.releaseTx, receiptTx: job.receiptTx });
+  await recordJobFeedback(job);
+  await persistJob(job);
   return deskView(job);
 }
 
@@ -1030,6 +1166,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
           await waitSettlerTx(tx);
           job.status = JobStatus.CLOSED;
           emitEvent(job, "refunded", { tx: job.refundTx });
+          await recordJobFeedback(job);
         }
         await persistJob(job);
         return;
@@ -1054,6 +1191,7 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
         await waitSettlerTx(tx);
         job.status = JobStatus.CLOSED;
         emitEvent(job, "refunded", { tx: job.refundTx });
+        await recordJobFeedback(job);
       }
     } catch {
       /* refund best-effort */
@@ -1086,6 +1224,7 @@ app.post("/v1/jobs/:id/refund", async (req) => {
   await waitSettlerTx(tx);
   job.status = JobStatus.CLOSED;
   emitEvent(job, "refunded", { tx: job.refundTx });
+  await recordJobFeedback(job);
   return deskView(job);
 });
 
@@ -1595,13 +1734,33 @@ registerMcpRoutes(app, {
       brief: input.brief,
       serviceId: input.serviceId,
     }),
+  lockAndRunJob: async (input) => {
+    const job = await getJob(input.jobId);
+    if (!job) throw new AppError("JOB_NOT_FOUND");
+    return lockJobViaSafe(job, getAddress(input.wallet));
+  },
+  inspectAddress: (addr) => inspectAddress(provider, addr),
+  inspectTransaction: (hash) => inspectTransaction(provider, hash),
+  quoteBridge: (text, wallet) => {
+    const intent = parseBridgeIntent(text);
+    if (!intent) {
+      throw new AppError("NO_FIT", {
+        message: "Name a source chain Beacon can quote (Base or Ethereum) and an amount, e.g. Bridge 1 USDC from Base to 0G.",
+      });
+    }
+    return quoteLifiBridge(intent, getAddress(wallet));
+  },
   executeSafeSwap: (input) => runSafeZiaSwap(input),
 });
+
+app.get("/.well-known/agent-card.json", async () => agentRegistrationFile());
+app.get("/.well-known/agent-registration.json", async () => agentRegistrationFile());
 
 app.get("/v1/erc8004/status", async () => {
   const status = await probeErc8004(provider, {
     identity: env.ERC8004_IDENTITY,
     reputation: env.ERC8004_REPUTATION,
+    ownerCandidate: settler?.address,
   });
   return { ok: true, ...status };
 });
@@ -1610,34 +1769,35 @@ app.post("/v1/erc8004/feedback", async (req) => {
   const body = z
     .object({
       wallet: z.string().min(42),
-      agentId: z.string().default("3531902"),
-      uri: z.string().url().optional(),
+      jobId: z.string().min(8),
     })
     .parse(req.body);
   requireWalletSession(req, body.wallet);
-  if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
-  const status = await probeErc8004(provider, {
-    identity: env.ERC8004_IDENTITY,
-    reputation: env.ERC8004_REPUTATION,
-  });
-  if (status.giveFeedback !== "REAL" || !status.workingSelector) {
+  const job = await getJob(body.jobId);
+  if (!job) throw new AppError("JOB_NOT_FOUND");
+  if (job.wallet && job.wallet.toLowerCase() !== getAddress(body.wallet).toLowerCase()) {
+    throw new AppError("UNAUTHORIZED", { message: "Job is not owned by this wallet." });
+  }
+  if (!job.releaseTx && !job.refundTx) {
     throw new AppError("NO_FIT", {
-      message: status.honesty,
+      message: "Feedback is written only after a real release or refund. Beacon will not post a score for a quoted job.",
     });
   }
-  const encoded = encodeGiveFeedback(status.workingSelector);
-  if (!encoded) {
-    throw new AppError("NO_FIT", { message: "giveFeedback encoder is not available for the live selector." });
+  await recordJobFeedback(job);
+  await persistJob(job);
+  if (!job.feedbackTx) {
+    throw new AppError("NO_FIT", {
+      message: "giveFeedback did not land. Check GET /v1/erc8004/status. Not faked.",
+    });
   }
-  const data = encoded.toData(BigInt(body.agentId), body.uri ?? "https://beacon-0g.vercel.app");
-  const tx = await sendSettlerTx({ to: status.reputation, data });
-  await waitSettlerTx(tx);
   return {
     ok: true,
-    tx: tx.hash,
-    explorer: explorerTx(tx.hash),
-    selector: status.workingSelector,
-    honesty: "Submitted giveFeedback on Aristotle. Explorer is the source of truth.",
+    jobId: job.id,
+    tx: job.feedbackTx,
+    explorer: explorerTx(job.feedbackTx),
+    feedbackIndex: job.feedbackIndex ?? null,
+    client: job.feedbackClient ?? null,
+    honesty: "Submitted official giveFeedback on Aristotle. Explorer NewFeedback is the source of truth.",
   };
 });
 
@@ -1900,9 +2060,10 @@ app.post("/v1/flow/chat", async (req) => {
     const status = await probeErc8004(provider, {
       identity: env.ERC8004_IDENTITY,
       reputation: env.ERC8004_REPUTATION,
+      ownerCandidate: settler?.address,
     });
     return {
-      reply: `ERC-8004 Identity ${status.identityCodeBytes} bytes. Reputation ${status.reputationCodeBytes} bytes. giveFeedback is ${status.giveFeedback}. ${status.honesty}`,
+      reply: `ERC-8004 Identity proxy ${status.identityCodeBytes} bytes. Reputation proxy ${status.reputationCodeBytes} bytes, implementation ${status.implementationCodeBytes} bytes (${status.reputationImplementation ?? "none"}). giveFeedback is ${status.giveFeedback} (${status.workingSelector ?? "none"}). ${status.honesty}`,
       cards: [
         {
           type: "inspect_result",
@@ -1911,9 +2072,9 @@ app.post("/v1/flow/chat", async (req) => {
             address: status.reputation,
             explorer: status.explorerReputation,
             isContract: status.reputationCodeBytes > 0,
-            bytecodeBytes: status.reputationCodeBytes,
+            bytecodeBytes: status.implementationCodeBytes || status.reputationCodeBytes,
             verifiedNote: status.honesty,
-            risks: status.candidates.filter((c) => c.inBytecode).map((c) => c.name),
+            risks: status.ownerBlocked ? ["Agent owner cannot self-feedback"] : [],
           },
         },
       ],

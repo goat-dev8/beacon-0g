@@ -13,6 +13,8 @@ export const MCP_EXEC_SCOPES = [
   "exec:infer",
   "exec:image",
   "exec:swap",
+  "exec:bridge",
+  "exec:inspect",
   "exec:pause",
 ] as const;
 
@@ -30,6 +32,8 @@ export const SCOPE_LABELS: Record<McpScope, string> = {
   "exec:infer": "Run text inference within limits",
   "exec:image": "Run image generation within limits",
   "exec:swap": "Run Zia W0G swaps within limits",
+  "exec:bridge": "Quote a live source-chain bridge (Safe cannot sign the source tx)",
+  "exec:inspect": "Inspect a live Aristotle address or transaction",
   "exec:pause": "Pause the Beacon vault",
 };
 
@@ -43,7 +47,8 @@ export const DEFAULT_CONNECT_SCOPES: McpScope[] = [
   "exec:infer",
   "exec:image",
   "exec:swap",
-  "exec:pause",
+  "exec:bridge",
+  "exec:inspect",
 ];
 
 export function isMcpScope(value: string): value is McpScope {

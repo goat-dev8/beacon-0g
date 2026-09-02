@@ -58,7 +58,8 @@ export const MCP_TOOL_DEFS: McpToolDef[] = [
   },
   {
     name: "create_job",
-    description: "Create an Agent Job (quote path in native 0G from the Compute Router catalog).",
+    description:
+      "Quote then lock+run an Agent Job from the Beacon Safe. The agent never receives the private key. Policy and TeeML still gate spend.",
     scope: "exec:job",
     inputSchema: {
       type: "object",
@@ -110,6 +111,33 @@ export const MCP_TOOL_DEFS: McpToolDef[] = [
         note: { type: "string", maxLength: 200 },
       },
       required: ["amount0g"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "inspect",
+    description: "Live Aristotle RPC inspect of an address or transaction hash. No invented ABI.",
+    scope: "exec:inspect",
+    inputSchema: {
+      type: "object",
+      properties: {
+        address: { type: "string" },
+        txHash: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "bridge",
+    description:
+      "Live LI.FI quote for USDC Base/Ethereum → 0G. Beacon Safe cannot sign the source chain. Returns the unsigned request.",
+    scope: "exec:bridge",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", minLength: 8, maxLength: 500 },
+      },
+      required: ["text"],
       additionalProperties: false,
     },
   },

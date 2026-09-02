@@ -49,6 +49,8 @@ const SCOPE_OPTIONS: { id: McpScope; label: string; group: "read" | "exec" }[] =
   { id: "exec:infer", label: "Run inference", group: "exec" },
   { id: "exec:image", label: "Generate image", group: "exec" },
   { id: "exec:swap", label: "Zia swap within limits", group: "exec" },
+  { id: "exec:bridge", label: "Quote live bridges", group: "exec" },
+  { id: "exec:inspect", label: "Inspect address / tx", group: "exec" },
   { id: "exec:pause", label: "Pause Safe", group: "exec" },
 ];
 
@@ -62,6 +64,8 @@ const DEFAULT_SCOPES: McpScope[] = [
   "exec:infer",
   "exec:image",
   "exec:swap",
+  "exec:bridge",
+  "exec:inspect",
 ];
 
 type IssuedSecrets = {
@@ -69,6 +73,7 @@ type IssuedSecrets = {
   refreshToken: string;
   mcpEndpoint: string;
   cursorConfig: string;
+  connectCard?: string;
   setupPrompt: string;
   grant: McpGrantPublic;
   warning: string;
@@ -196,6 +201,7 @@ export function McpPage() {
         refreshToken: data.refreshToken,
         mcpEndpoint: data.mcpEndpoint,
         cursorConfig: data.cursorConfig,
+        connectCard: data.connectCard,
         setupPrompt: data.setupPrompt,
         grant: data.grant,
         warning: data.warning,
@@ -500,6 +506,24 @@ export function McpPage() {
             </div>
 
             <div className="grid min-w-0 gap-3">
+              {issued.connectCard && (
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--p-faint)]">
+                      Setup block
+                    </p>
+                    <CopyButton text={issued.connectCard} label="Copy setup block" />
+                  </div>
+                  <div className="mt-2 min-w-0 overflow-hidden rounded-[var(--p-radius-sm)] border border-[var(--p-border)] bg-[var(--p-bg)]">
+                    <pre className="max-h-72 overflow-x-auto overflow-y-auto p-3 font-mono text-[11px] leading-relaxed text-[var(--p-fg)] whitespace-pre-wrap break-all">
+                      {issued.connectCard}
+                    </pre>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-[var(--p-muted)]">
+                    Paste this into your MCP client configuration. The agent never receives a private key.
+                  </p>
+                </div>
+              )}
               <div className="min-w-0">
                 <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--p-faint)]">
                   MCP endpoint

@@ -555,6 +555,7 @@ export const api = {
       refreshToken: string;
       mcpEndpoint: string;
       cursorConfig: string;
+      connectCard?: string;
       setupPrompt: string;
       warning: string;
     }>("/v1/mcp/grants", {
@@ -779,6 +780,8 @@ export type McpScope =
   | "exec:infer"
   | "exec:image"
   | "exec:swap"
+  | "exec:bridge"
+  | "exec:inspect"
   | "exec:pause";
 
 export type McpGrantPublic = {

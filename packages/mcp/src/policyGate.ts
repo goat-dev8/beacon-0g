@@ -90,10 +90,12 @@ export const BEACON_MCP_INSTRUCTIONS = `You are connected to Beacon MCP on 0G Ar
 Unit of account is native 0G. Do not invent USDT0, FXRP, or Coston2.
 
 Flow map:
-- jobs: quote from the 0G Compute Router catalog (neurons → 0G), lock in escrow, TeeML review, then infer/image.
+- jobs: quote from the 0G Compute Router catalog (neurons → 0G), lock in escrow from the Beacon Safe, TeeML review, then infer/image. The MCP token is not a key.
 - swap: vault W0G → Bridged USDC via Zia QuoterV2 + SwapRouter only. Tool: swap({ amount0g }). If liquidity is thin, Beacon refuses — do not suggest another venue.
-- infer / image: exec:infer and exec:image within caps.
-- pause: exec:pause freezes the vault.
+- inspect: live Aristotle RPC. Tool: inspect({ address }) or inspect({ txHash }).
+- bridge: live LI.FI quote only. Beacon Safe cannot sign the source chain.
+- infer / image: exec:infer and exec:image lock+run within caps.
+- inspect: live Aristotle RPC. Tool: inspect({ address }) or inspect({ txHash }).
 
 Rules:
 1. Never ask for private keys / seeds.

@@ -22,8 +22,8 @@ export const BEACON_CAPABILITIES: Capability[] = [
   { name: "quote_swap", group: "defi", description: "Zia QuoterV2 exactInput. Thin books refused.", mutates: false, quote: true, proof: false },
   { name: "execute_swap", group: "defi", description: "Safe execute: native 0G or W0G in only. Token→0G quotes live but revert on wealth().", mutates: true, quote: true, proof: true },
   { name: "list_bridge_routes", group: "bridge", description: "Real 0G Hub / get.0g.ai / Zia-documented bridges. Not executable from the Aristotle Safe.", mutates: false, quote: false, proof: false },
-  { name: "mcp_grant", group: "execution", description: "Scoped MCP grants persisted in Redis. Tools quote and read; pause is owner-signed.", mutates: true, quote: false, proof: false },
-  { name: "erc8004_feedback", group: "execution", description: "On-chain Identity register is live. giveFeedback is probed, never faked.", mutates: true, quote: false, proof: true },
+  { name: "mcp_grant", group: "execution", description: "Scoped MCP grants in Redis. One wallet signature mints a Bearer token. Tools execute through the Safe; the agent never gets a private key.", mutates: true, quote: false, proof: false },
+  { name: "erc8004_feedback", group: "execution", description: "Official giveFeedback after a real job release or refund. Agent owner cannot self-feedback. Client is a dedicated EOA.", mutates: true, quote: false, proof: true },
   { name: "why_denied", group: "safety", description: "Explain the last policy block before funds moved.", mutates: false, quote: false, proof: false },
 ];
 

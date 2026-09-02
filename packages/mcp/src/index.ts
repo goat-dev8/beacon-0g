@@ -83,7 +83,8 @@ export function buildSetupPrompt(opts: {
     "2) Call get_safe and get_policy.",
     "3) Summarize what you can and cannot do under scopes + limits.",
     "4) Never exceed policy; if a tool returns MCP_TX_LIMIT / SCOPE_DENIED / SAFE_PAUSED, stop and explain.",
-    "5) When setup looks good, reply with:",
+    "5) Never ask for a private key. Execution uses the Beacon Safe + allowlisted executor.",
+    "6) When setup looks good, reply with:",
     "Beacon connected.",
     "Safe: …",
     "Permissions: …",
@@ -101,7 +102,7 @@ export function buildCursorMcpConfig(opts: {
   return JSON.stringify(
     {
       mcpServers: {
-        beacon: {
+        "beacon-0g": {
           url,
           headers: {
             Authorization: `Bearer ${opts.accessToken}`,
@@ -112,4 +113,50 @@ export function buildCursorMcpConfig(opts: {
     null,
     2,
   );
+}
+
+export function buildConnectCard(opts: {
+  mcpEndpoint: string;
+  accessToken: string;
+  wallet: string;
+  safeAddress: string | null;
+  chainId: number;
+  scopes: string[];
+  maxSpendPerTx0g: number;
+  dailyLimit0g: number;
+  expiresAt: string;
+}): string {
+  return [
+    "BEACON MCP",
+    "",
+    "Endpoint:",
+    opts.mcpEndpoint,
+    "",
+    "Authorization:",
+    `Bearer ${opts.accessToken}`,
+    "",
+    "Wallet:",
+    opts.wallet,
+    "",
+    "Safe:",
+    opts.safeAddress ?? "not linked — create one at /flow/security",
+    "",
+    "Chain:",
+    String(opts.chainId),
+    "",
+    "Scopes:",
+    ...opts.scopes,
+    "",
+    "Max transaction:",
+    `${opts.maxSpendPerTx0g} 0G`,
+    "",
+    "Daily cap:",
+    `${opts.dailyLimit0g} 0G`,
+    "",
+    "Expires:",
+    opts.expiresAt,
+    "",
+    "Install:",
+    "Paste this into your MCP client configuration.",
+  ].join("\n");
 }
