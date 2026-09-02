@@ -109,6 +109,12 @@ type VerifyPayload = {
       chainId?: number;
     };
     policy?: unknown;
+    guards?: {
+      mode?: string;
+      allow?: boolean;
+      reason?: string;
+      votes?: Array<{ name?: string; allow?: boolean; reason?: string; kind?: string }>;
+    };
   } | null;
   evidenceAnchor?: {
     configured?: boolean;
@@ -431,13 +437,13 @@ export function VerifyPage() {
                 <Meta
                   label="Guards"
                   value={
-                    job?.guards
-                      ? `${job.guards.mode} · ${job.guards.allow ? "ALLOW" : "DENY"} · ${job.guards.reason}`
+                    (job?.guards ?? data?.action?.guards)
+                      ? `${(job?.guards ?? data?.action?.guards)?.mode} · ${(job?.guards ?? data?.action?.guards)?.allow ? "ALLOW" : "DENY"} · ${(job?.guards ?? data?.action?.guards)?.reason}`
                       : undefined
                   }
-                  tone={job?.guards?.allow ? "ok" : job?.guards ? "fail" : undefined}
+                  tone={(job?.guards ?? data?.action?.guards)?.allow ? "ok" : (job?.guards ?? data?.action?.guards) ? "fail" : undefined}
                 />
-                {(job?.guards?.votes ?? []).map((vote) => (
+                {(job?.guards?.votes ?? data?.action?.guards?.votes ?? []).map((vote) => (
                   <Meta
                     key={vote.name}
                     label={vote.name}

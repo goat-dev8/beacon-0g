@@ -34,7 +34,7 @@ describe("bindAction", () => {
     expect(a.teeHash).toBe(hashTeeVerdict(base.tee));
   });
 
-  it("changes when the brief, policy, TEE, storage, or settlement changes", () => {
+  it("changes when the brief, policy, TEE, storage, settlement, or wallet changes", () => {
     const orig = bindAction(base).actionHash;
     expect(bindAction({ ...base, brief: "tampered" }).actionHash).not.toBe(orig);
     expect(bindAction({ ...base, policy: { ...base.policy, paused: true } }).actionHash).not.toBe(orig);
@@ -42,6 +42,9 @@ describe("bindAction", () => {
     expect(bindAction({ ...base, storageRoot: "0x" + "99".repeat(32) }).actionHash).not.toBe(orig);
     expect(bindAction({ ...base, settleTx: "0x" + "aa".repeat(32) }).actionHash).not.toBe(orig);
     expect(bindAction({ ...base, nonce: 8 }).actionHash).not.toBe(orig);
+    expect(
+      bindAction({ ...base, wallet: "0x0000000000000000000000000000000000000001" }).actionHash,
+    ).not.toBe(orig);
   });
 
   it("binds missing values as zero rather than inventing a pass", () => {

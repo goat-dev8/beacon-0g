@@ -626,10 +626,10 @@ function serializeJob(job: StoredJob) {
       refund: job.refundTx ? explorerTx(job.refundTx) : null,
       feedback: job.feedbackTx ? explorerTx(job.feedbackTx) : null,
     },
-    actionProof: job.actionProof ?? null,
+    actionProof: job.actionProof ?? bindJobAction(job),
     preflight: job.preflight ?? null,
     risk: job.risk ?? null,
-    guards: job.guards ?? null,
+    guards: job.guards ?? guardsForJob(job),
     composition: job.composition ?? compositionForJob({
       serviceId: job.serviceId,
       status: job.status,

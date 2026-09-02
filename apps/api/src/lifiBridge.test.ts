@@ -114,6 +114,24 @@ describe("statusLifiBridge", () => {
     const st = await statusLifiBridge("0xsrc", 8453, fetchImpl);
     expect(st.complete).toBe(false);
   });
+
+  it("does not mark complete when LI.FI reports a different source hash", async () => {
+    const queried = "0x" + "00".repeat(31) + "01";
+    const fetchImpl = (async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          status: "DONE",
+          sending: { txHash: "0xe4132a8d" + "ab".repeat(28) },
+          receiving: { txHash: "0xe4132a8d" + "ab".repeat(28) },
+        }),
+      }) as Response) as typeof fetch;
+    const st = await statusLifiBridge(queried, 8453, fetchImpl);
+    expect(st.complete).toBe(false);
+    expect(st.status).toBe("NOT_FOUND");
+    expect(st.receivingTx).toBeNull();
+    expect(st.honesty).toMatch(/did not confirm this source hash/i);
+  });
 });
 
 describe("destinationComplete", () => {

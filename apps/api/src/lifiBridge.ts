@@ -194,15 +194,18 @@ export async function statusLifiBridge(
   const status = String(body.status ?? "UNKNOWN");
   const sending = (body.sending as { txHash?: string } | undefined)?.txHash ?? txHash;
   const receiving = (body.receiving as { txHash?: string } | undefined)?.txHash ?? null;
-  const complete = status === "DONE" && Boolean(receiving);
+  const sameSource = sending.toLowerCase() === txHash.toLowerCase();
+  const complete = status === "DONE" && Boolean(receiving) && sameSource;
   return {
-    status,
+    status: sameSource ? status : "NOT_FOUND",
     sendingTx: sending,
-    receivingTx: receiving,
+    receivingTx: sameSource ? receiving : null,
     complete,
     honesty: complete
       ? "LI.FI status DONE with a destination transaction."
-      : `LI.FI status is ${status}. Beacon will not mark the bridge complete until destination is detected.`,
+      : !sameSource
+        ? "LI.FI did not confirm this source hash. Destination is not complete."
+        : `LI.FI status is ${status}. Beacon will not mark the bridge complete until destination is detected.`,
   };
 }
 
