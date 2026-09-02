@@ -693,7 +693,7 @@ async function runMcpTool(
         lanes: ledgers?.report.lanes ?? null,
         windows: ledgers?.windows ?? null,
         vault: ledgers?.vault ?? null,
-        note: "Safe windowSpent is 24h. It appears under Today only. Never add escrow + Safe + swap + gas.",
+        note: "Safe windowSpent is the live rolling window. It appears under Today only. Never add escrow + Safe + swap + gas.",
       },
       null,
       2,

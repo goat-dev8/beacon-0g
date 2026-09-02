@@ -145,7 +145,7 @@ export function composeSpendReport(input: {
   const windowSpent = input.includeSafeWindow === false ? 0n : (input.windowSpent ?? 0n);
   const safeNote =
     input.includeSafeWindow === false
-      ? "On-chain Safe window is 24h. It is shown under Today only — not summed into 7d/30d."
+      ? "On-chain windowSpent is the live rolling window (see Safe policy hours). Shown under Today only — not copied into 7d/30d."
       : "Vault rolling window. Includes Zia principal. Do not add to escrow.";
 
   const lanes: SpendLane[] = [
