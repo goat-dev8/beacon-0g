@@ -1,5 +1,6 @@
 export {
   quoteExactIn,
+  quoteZiaPair,
   buildSwapTx,
   encodeExactInputSingle,
   encodeVaultExecute,
@@ -12,3 +13,5 @@ export { listSwapAssets, findPoolFee } from "./assets.js";
 export { resolveZiaToken, uniqueZiaAssets, ZIA_DOC_TOKENS } from "./tokens.js";
 export type { ZiaToken } from "./tokens.js";
 export type { ZiaPoolHit } from "./assets.js";
+export { parseSwapIntent, parseTokenAmount, formatTokenAmount } from "./intent.js";
+export type { SwapIntent } from "./intent.js";

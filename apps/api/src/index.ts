@@ -21,7 +21,7 @@ import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } fr
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
-import { quoteExactIn, buildSwapTx, listSwapAssets, resolveZiaToken } from "@beacon/swap";
+import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
 import {
   createSafeSessionChallenge,
   verifyChallengeAndIssueSession,
@@ -29,10 +29,13 @@ import {
 } from "./safeSession.js";
 import { serviceIdToTask, webJobRow, webQuoteDto, ZEROG_SERVICES } from "./jobDesk.js";
 import { openFlowHistory, redisClientFromEnv } from "./flowHistory.js";
-import { getDurableJob, getDurableQuote, getLastJobId, putDurableJob, putLastJobId } from "./jobPersist.js";
+import { getDurableJob, getDurableQuote, getLastJobId, listWalletJobIds, putDurableJob, putLastJobId } from "./jobPersist.js";
 import { inspectAddress, inspectTransaction } from "./inspect.js";
 import { BEACON_CAPABILITIES, capabilityCard } from "./capabilities.js";
 import { BRIDGE_CATALOG, bridgeCatalogCard } from "./bridgeCatalog.js";
+import { historyMeta } from "./historyMeta.js";
+import { encodeGiveFeedback, probeErc8004 } from "./erc8004.js";
+import { registerMcpRoutes } from "./mcpRoutes.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -371,6 +374,7 @@ app.get("/health", async () => ({
   history: historyReady,
   historyKind: history?.kind ?? "none",
   jobs: Boolean(jobRedis),
+  mcp: Boolean(jobRedis),
 }));
 
 app.get("/ready", async () => ({
@@ -1336,26 +1340,36 @@ app.post("/v1/vault/prepare", async (req) => {
   };
 });
 
-app.post("/v1/vault/safe-swap/execute", async (req) => {
-  const body = z
-    .object({
-      wallet: z.string().min(42),
-      amountInUnits: z.string(),
-      recipient: z.string().min(42),
-      slippageBps: z.number().int().nonnegative().optional(),
-    })
-    .parse(req.body);
-  requireWalletSession(req, body.wallet);
+async function runSafeZiaSwap(input: {
+  wallet: string;
+  amountInUnits: string;
+  tokenIn?: string;
+  tokenOut?: string;
+  slippageBps?: number;
+}) {
   if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
-  const owner = getAddress(body.wallet);
+  const owner = getAddress(input.wallet);
   const safe = await resolveSafe(owner);
   if (!safe) throw new AppError("NOT_READY", { message: "Create Beacon Safe first." });
-  const amountIn = parse0g(body.amountInUnits);
-  const quote = await quoteExactIn(amountIn, { slippageBps: body.slippageBps ?? 100 });
+  const tokenIn = input.tokenIn ?? "0G";
+  const tokenOut = input.tokenOut ?? "USDC";
+  const inTok = resolveZiaToken(tokenIn);
+  const amountIn = parseTokenAmount(input.amountInUnits, inTok?.docsDecimals ?? 18);
+  const quote = await quoteZiaPair({
+    amountIn,
+    tokenIn,
+    tokenOut,
+    slippageBps: input.slippageBps ?? 100,
+  });
+  if (!quote.executableFromSafe) {
+    throw new AppError("SWAP_REFUSED", {
+      message: quote.executeBlock || "Beacon Safe cannot execute this direction.",
+    });
+  }
   if (quote.router.toLowerCase() !== env.ZIA_ROUTER.toLowerCase()) {
     throw new AppError("SWAP_REFUSED", { message: "Quote router is not the allowlisted Zia router." });
   }
-  const built = buildSwapTx(quote, safe, { nonce: 0n });
+  const built = buildSwapTx(quote, safe, { nonce: 0n, wrapNative: quote.wrapNative });
   const hashes: string[] = [];
   let nonce = BigInt(Date.now());
   for (const call of built.calls) {
@@ -1373,17 +1387,34 @@ app.post("/v1/vault/safe-swap/execute", async (req) => {
   const spendHash = hashes[0] ?? "";
   const fulfillHash = hashes[hashes.length - 1] ?? spendHash;
   return {
-    ok: true,
+    ok: true as const,
     spendHash,
     fulfillHash,
     amountIn: quote.amountIn.toString(),
     amountOut: quote.amountOut.toString(),
+    tokenIn: quote.tokenInSymbol,
+    tokenOut: quote.tokenOutSymbol,
     recipient: safe,
     explorerSpend: explorerTx(spendHash),
     explorerFulfill: explorerTx(fulfillHash),
     chainId: env.CHAIN_ID,
-    honesty: "Executor submitted wrap + approve + Zia exactInputSingle from Beacon Safe. USDC.e stays in the Safe.",
+    honesty: "Executor submitted wrap + approve + Zia exactInputSingle from Beacon Safe. Output token stays in the Safe.",
   };
+}
+
+app.post("/v1/vault/safe-swap/execute", async (req) => {
+  const body = z
+    .object({
+      wallet: z.string().min(42),
+      amountInUnits: z.string(),
+      recipient: z.string().min(42),
+      slippageBps: z.number().int().nonnegative().optional(),
+      tokenIn: z.string().optional(),
+      tokenOut: z.string().optional(),
+    })
+    .parse(req.body);
+  requireWalletSession(req, body.wallet);
+  return runSafeZiaSwap(body);
 });
 
 app.get("/v1/security/policy", async (req) => {
@@ -1436,15 +1467,82 @@ app.post("/v1/security/revoke", async (req) => {
   return { ok: true, message: "App limits reset. Sign again to unlock Beacon Agent." };
 });
 
-app.get("/v1/mcp/health", async () => ({
-  ok: true,
-  service: "beacon-0g",
-  redis: false,
-  endpoint: "",
-  connectPage: "/flow/mcp",
-}));
+async function vaultSnapshotForMcp(safe: string) {
+  const [wealth] = await vaultView(safe, "wealth");
+  const [paused] = await vaultView(safe, "paused");
+  const [maxSpend] = await vaultView(safe, "maxSpendPerTx");
+  const [windowSpent] = await vaultView(safe, "windowSpent");
+  const [windowBudget] = await vaultView(safe, "rollingWindowBudget");
+  return {
+    wealth: format0g(wealth).replace(/ 0G$/, ""),
+    paused: Boolean(paused),
+    maxSpendPerTx: format0g(maxSpend).replace(/ 0G$/, ""),
+    windowSpent: format0g(windowSpent).replace(/ 0G$/, ""),
+    windowBudget: format0g(windowBudget).replace(/ 0G$/, ""),
+    windowSpent0g: Number(windowSpent.toString()) / 1e18,
+  };
+}
 
-app.get("/v1/mcp/grants", async () => ({ ok: true, grants: [] }));
+registerMcpRoutes(app, {
+  env,
+  redis: jobRedis,
+  requireWalletSession,
+  bearerToken,
+  resolveSafe,
+  vaultSnapshot: vaultSnapshotForMcp,
+  getJob,
+  createQuotedJob: async (input) =>
+    createQuotedJob({
+      wallet: input.wallet,
+      task: input.task,
+      brief: input.brief,
+      serviceId: input.serviceId,
+    }),
+  executeSafeSwap: (input) => runSafeZiaSwap(input),
+});
+
+app.get("/v1/erc8004/status", async () => {
+  const status = await probeErc8004(provider, {
+    identity: env.ERC8004_IDENTITY,
+    reputation: env.ERC8004_REPUTATION,
+  });
+  return { ok: true, ...status };
+});
+
+app.post("/v1/erc8004/feedback", async (req) => {
+  const body = z
+    .object({
+      wallet: z.string().min(42),
+      agentId: z.string().default("3531902"),
+      uri: z.string().url().optional(),
+    })
+    .parse(req.body);
+  requireWalletSession(req, body.wallet);
+  if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
+  const status = await probeErc8004(provider, {
+    identity: env.ERC8004_IDENTITY,
+    reputation: env.ERC8004_REPUTATION,
+  });
+  if (status.giveFeedback !== "REAL" || !status.workingSelector) {
+    throw new AppError("NO_FIT", {
+      message: status.honesty,
+    });
+  }
+  const encoded = encodeGiveFeedback(status.workingSelector);
+  if (!encoded) {
+    throw new AppError("NO_FIT", { message: "giveFeedback encoder is not available for the live selector." });
+  }
+  const data = encoded.toData(BigInt(body.agentId), body.uri ?? "https://beacon-0g.vercel.app");
+  const tx = await sendSettlerTx({ to: status.reputation, data });
+  await tx.wait();
+  return {
+    ok: true,
+    tx: tx.hash,
+    explorer: explorerTx(tx.hash),
+    selector: status.workingSelector,
+    honesty: "Submitted giveFeedback on Aristotle. Explorer is the source of truth.",
+  };
+});
 
 app.get("/v1/agents/bridge/routes", async () => ({
   ok: true,
@@ -1468,14 +1566,22 @@ app.post("/v1/agents/bridge/execute", async () => {
 app.post("/v1/swap/quote", async (req) => {
   const body = z
     .object({
-      amount0g: z.string(),
+      amount0g: z.string().optional(),
+      amount: z.string().optional(),
+      tokenIn: z.string().optional(),
       tokenOut: z.string().optional(),
     })
     .parse(req.body);
-  const quote = await quoteExactIn(parse0g(body.amount0g), {
-    tokenOut: body.tokenOut,
+  const tokenIn = body.tokenIn ?? "0G";
+  const tokenOut = body.tokenOut ?? "USDC";
+  const inTok = resolveZiaToken(tokenIn);
+  const amount = body.amount ?? body.amount0g;
+  if (!amount) throw new AppError("VALIDATION", { message: "amount is required." });
+  const quote = await quoteZiaPair({
+    amountIn: parseTokenAmount(amount, inTok?.docsDecimals ?? 18),
+    tokenIn,
+    tokenOut,
   });
-  const named = body.tokenOut ? resolveZiaToken(body.tokenOut) : resolveZiaToken("USDC");
   return {
     amountIn: quote.amountIn.toString(),
     amountOut: quote.amountOut.toString(),
@@ -1484,7 +1590,11 @@ app.post("/v1/swap/quote", async (req) => {
     fee: quote.fee,
     tokenIn: quote.tokenIn,
     tokenOut: quote.tokenOut,
-    tokenOutSymbol: named?.symbol ?? "USDC",
+    tokenInSymbol: quote.tokenInSymbol,
+    tokenOutSymbol: quote.tokenOutSymbol,
+    wrapNative: quote.wrapNative,
+    executableFromSafe: quote.executableFromSafe,
+    executeBlock: quote.executeBlock,
     router: quote.router,
     path: quote.path,
   };
@@ -1584,39 +1694,165 @@ app.post("/v1/flow/chat", async (req) => {
       cards: [bridgeCatalogCard()],
     };
   }
+  if (/erc-?8004|givefeedback|agent (identity|reputation|feedback)/.test(text)) {
+    const status = await probeErc8004(provider, {
+      identity: env.ERC8004_IDENTITY,
+      reputation: env.ERC8004_REPUTATION,
+    });
+    return {
+      reply: `ERC-8004 Identity ${status.identityCodeBytes} bytes. Reputation ${status.reputationCodeBytes} bytes. giveFeedback is ${status.giveFeedback}. ${status.honesty}`,
+      cards: [
+        {
+          type: "inspect_result",
+          title: "ERC-8004",
+          inspect: {
+            address: status.reputation,
+            explorer: status.explorerReputation,
+            isContract: status.reputationCodeBytes > 0,
+            bytecodeBytes: status.reputationCodeBytes,
+            verifiedNote: status.honesty,
+            risks: status.candidates.filter((c) => c.inBytecode).map((c) => c.name),
+          },
+        },
+      ],
+    };
+  }
   const txHash = body.text.match(/0x[a-fA-F0-9]{64}/)?.[0];
   const inspectAddr = body.text.match(/0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/)?.[0];
+  if (/analyze this wallet|inspect my (wallet|safe)|analyze my (wallet|safe)/.test(text) && !inspectAddr && !txHash) {
+    if (!body.wallet) {
+      return {
+        reply: "Connect a wallet so Beacon can inspect it on Aristotle. Beacon will not invent an address.",
+        cards: [],
+      };
+    }
+  }
+  const addressTarget =
+    inspectAddr ||
+    (/analyze this wallet|inspect my (wallet|safe)|analyze my (wallet|safe)|inspect this wallet/.test(text) && body.wallet
+      ? body.wallet
+      : undefined);
   if (txHash && /inspect|analyze|explain|transaction|\btx\b/.test(text)) {
     const info = await inspectTransaction(provider, txHash);
+    const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
+    const brief = `Explain this Aristotle transaction from evidence only.\n${JSON.stringify(info)}`;
+    const quote = quoteJob(catalog, { task: "cheap", briefText: brief });
+    quotes.set(quote.quoteId, quote);
+    const job = await createQuotedJob({
+      wallet: body.wallet,
+      task: "cheap",
+      brief,
+      quoteId: quote.quoteId,
+      serviceId: "analysis",
+    });
     return {
-      reply: `Transaction ${info.status} on Aristotle ${info.chainId}. Explorer is the source of truth; Beacon does not invent decoded logs.`,
-      cards: [{ type: "inspect_result", title: "Transaction", inspect: info }],
+      reply: `Transaction ${info.status} on Aristotle. Evidence is from live RPC. Paid interpretation is a cheap TeeML job — lock ${format0g(quote.lock0g)}.`,
+      cards: [
+        { type: "inspect_result", title: "Transaction", inspect: info },
+        { type: "quote", unit: "0G", title: "Explain this tx", summary: `${quote.modelId} · ${format0g(quote.lock0g)}` },
+        {
+          type: "desk_link",
+          title: "Lock analysis job",
+          summary: "Compute + Storage + proof. Refunds if it fails.",
+          href: `/flow/desk?job=${job.id}`,
+        },
+      ],
     };
   }
-  if (inspectAddr && /inspect|analyze|explain|contract|wallet|address/.test(text)) {
-    const info = await inspectAddress(provider, inspectAddr);
+  if (addressTarget && /inspect|analyze|explain|contract|wallet|address/.test(text)) {
+    const info = await inspectAddress(provider, addressTarget);
+    const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
+    const brief = `Explain this Aristotle ${info.isContract ? "contract" : "wallet"} from evidence only. Do not invent ABI.\n${JSON.stringify(info)}`;
+    const quote = quoteJob(catalog, { task: "cheap", briefText: brief });
+    quotes.set(quote.quoteId, quote);
+    const job = await createQuotedJob({
+      wallet: body.wallet,
+      task: "cheap",
+      brief,
+      quoteId: quote.quoteId,
+      serviceId: "analysis",
+    });
     return {
       reply: info.isContract
-        ? `Contract ${info.address}. ${info.bytecodeBytes} bytecode bytes. Source is not verified in Beacon. ${info.risks[0] ?? ""}`
-        : `Wallet ${info.address}. Native 0G from live RPC. Beacon does not claim complete token history.`,
-      cards: [{ type: "inspect_result", title: info.isContract ? "Contract" : "Wallet", inspect: info }],
+        ? `Contract ${info.address}. ${info.bytecodeBytes} bytecode bytes. Source is not verified in Beacon. ${info.risks[0] ?? ""} Paid explanation locks ${format0g(quote.lock0g)}.`
+        : `Wallet ${info.address}. Native 0G from live RPC. Paid explanation locks ${format0g(quote.lock0g)}. Beacon does not claim complete token history.`,
+      cards: [
+        { type: "inspect_result", title: info.isContract ? "Contract" : "Wallet", inspect: info },
+        { type: "quote", unit: "0G", title: "Explain this address", summary: `${quote.modelId} · ${format0g(quote.lock0g)}` },
+        {
+          type: "desk_link",
+          title: "Lock analysis job",
+          summary: "Compute + Storage + proof. Refunds if it fails.",
+          href: `/flow/desk?job=${job.id}`,
+        },
+      ],
     };
   }
-  if (/swap|convert|usdc|wbtc|st0g/.test(text)) {
-    const m = text.match(/([\d.]+)\s*0g/);
-    const amount = m?.[1] ?? "0.2";
-    const outWord =
-      text.match(/\bto\s+(usdc\.e|usdc|wbtc|st0g|w0g|usdt|link|sol|cbbtc|wsteth)\b/i)?.[1] ?? "USDC";
-    const named = resolveZiaToken(outWord) ?? resolveZiaToken("USDC");
+  if (/what did i spend|show what the last job cost|spend(ing)? summary|cost today/.test(text)) {
+    const last = await lastJobForWallet(body.wallet);
+    const ids = jobRedis && body.wallet ? await listWalletJobIds(jobRedis, body.wallet) : [];
+    const rows = [];
+    for (const id of ids.slice(0, 8)) {
+      const job = await getJob(id);
+      if (!job) continue;
+      rows.push({
+        id: job.id,
+        status: job.status,
+        lock0g: format0g(job.quote.lock0g),
+        modelId: job.quote.modelId,
+      });
+    }
+    if (!last && rows.length === 0) {
+      return { reply: "No Beacon jobs are on file for this wallet yet.", cards: [] };
+    }
+    const shown = last ?? (await getJob(rows[0]?.id ?? ""));
+    const cards: Array<Record<string, unknown>> = [
+      {
+        type: "quote",
+        unit: "0G",
+        title: "Job spend (escrow)",
+        summary:
+          rows.map((r) => `${r.id.slice(0, 8)} ${r.status} ${r.lock0g}`).join(" · ") ||
+          `${shown?.status ?? ""} · ${shown ? format0g(shown.quote.lock0g) : ""}`,
+      },
+    ];
+    if (shown) {
+      cards.push({
+        type: "desk_link",
+        title: "View proof",
+        summary: shown.status,
+        href: `/verify/${shown.id}`,
+      });
+    }
+    return {
+      reply: shown
+        ? `Job records (escrow), not a chain archive. Last ${shown.id.slice(0, 8)}… ${shown.status} locked ${format0g(shown.quote.lock0g)}. Safe windowSpent is a different number — do not add them.`
+        : "No Beacon jobs are on file for this wallet yet.",
+      cards,
+    };
+  }
+  const swapIntent = parseSwapIntent(body.text);
+  if (swapIntent || /swap|convert|usdc|wbtc|st0g/.test(text)) {
     try {
-      const quote = await quoteExactIn(parse0g(amount), { tokenOut: outWord });
-      const decimals = named?.docsDecimals ?? 6;
-      const out = Number(quote.amountOut) / 10 ** decimals;
-      const estimatedOut = Number.isFinite(out)
-        ? out.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")
-        : quote.amountOut.toString();
+      const intent =
+        swapIntent ??
+        ({
+          amount: text.match(/([\d.]+)\s*0g/)?.[1] ?? "0.2",
+          tokenIn: resolveZiaToken("0G")!,
+          tokenOut: resolveZiaToken("USDC")!,
+        } as const);
+      const quote = await quoteZiaPair({
+        amountIn: parseTokenAmount(intent.amount, intent.tokenIn.docsDecimals ?? 18),
+        tokenIn: intent.tokenIn.symbol,
+        tokenOut: intent.tokenOut.native ? "0G" : intent.tokenOut.symbol,
+        slippageBps: 100,
+      });
+      const outTok = resolveZiaToken(quote.tokenOut);
+      const estimatedOut = formatTokenAmount(quote.amountOut, outTok?.docsDecimals ?? (quote.tokenOutSymbol === "0G" ? 18 : 6));
       return {
-        reply: `Zia quote for ${amount} 0G → ${named?.symbol ?? "USDC"}. Beacon will wrap to W0G, approve the Zia router, then exactInputSingle. Recipient is your Beacon Safe.`,
+        reply: quote.executableFromSafe
+          ? `Zia quote for ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. Wrap/approve/exactInputSingle. Recipient is your Beacon Safe.`
+          : `Live quote ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. ${quote.executeBlock}`,
         quote: {
           amountOut: quote.amountOut.toString(),
           minOut: quote.minOut.toString(),
@@ -1629,15 +1865,22 @@ app.post("/v1/flow/chat", async (req) => {
             mode: "beacon_safe",
             requiresMetaMask: false,
             title: "Zia swap",
-            amountInDisplay: amount,
+            amountInDisplay: intent.amount,
             estimatedOut,
-            symbolIn: "0G",
-            symbolOut: named?.symbol ?? "USDC",
+            symbolIn: quote.tokenInSymbol,
+            symbolOut: quote.tokenOutSymbol,
+            tokenIn: quote.tokenInSymbol,
+            tokenOut: quote.tokenOutSymbol,
+            executableFromSafe: quote.executableFromSafe,
+            executeBlock: quote.executeBlock,
             chainId: env.CHAIN_ID,
             slippageBps: 100,
-            warning: "Unlock Beacon Agent if the session is locked. Thin books are refused before funds move.",
-            honesty:
-              "Native 0G → W0G.deposit → approve Zia SwapRouter → exactInputSingle. Output stays in the Safe.",
+            warning: quote.executableFromSafe
+              ? "Unlock Beacon Agent if the session is locked. Thin books are refused before funds move."
+              : quote.executeBlock,
+            honesty: quote.executableFromSafe
+              ? "Native 0G → W0G.deposit → approve Zia SwapRouter → exactInputSingle. Output stays in the Safe."
+              : quote.executeBlock,
             ogPrimitive: "Zia SwapRouter",
             network: "0G Aristotle",
           },
@@ -1773,17 +2016,94 @@ app.get("/v1/agents/balances", async (req) => {
   };
 });
 
+function parseCards(raw: unknown): unknown {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return raw ?? [];
+}
+
 function requireHistory() {
   if (!history || !historyReady) throw new AppError("HISTORY_PERSISTENCE_FAILED");
   return history;
 }
+
+app.get("/v1/flow/spend", async (req) => {
+  const wallet = String((req.query as { wallet?: string }).wallet ?? "");
+  if (!wallet) return { ok: true, jobs: [], vault: null, honesty: "Connect a wallet." };
+  const owner = getAddress(wallet);
+  const ids = jobRedis ? await listWalletJobIds(jobRedis, owner) : [];
+  const memIds = [...jobs.values()]
+    .filter((j) => {
+      try {
+        return j.wallet && getAddress(j.wallet) === owner;
+      } catch {
+        return false;
+      }
+    })
+    .map((j) => j.id);
+  const all = [...new Set([...ids, ...memIds])];
+  const jobRows = [];
+  for (const id of all.slice(0, 20)) {
+    const job = await getJob(id);
+    if (!job) continue;
+    jobRows.push({
+      id: job.id,
+      status: job.status,
+      lock0g: format0g(job.quote.lock0g),
+      modelId: job.quote.modelId,
+      lockTx: job.lockTx ?? null,
+      releaseTx: job.releaseTx ?? null,
+      refundTx: job.refundTx ?? null,
+    });
+  }
+  const safe = await resolveSafe(owner);
+  let vault: { address: string; windowSpent: string; windowBudget: string } | null = null;
+  if (safe) {
+    const [windowSpent] = await vaultView(safe, "windowSpent");
+    const [windowBudget] = await vaultView(safe, "rollingWindowBudget");
+    vault = {
+      address: safe,
+      windowSpent: format0g(windowSpent),
+      windowBudget: format0g(windowBudget),
+    };
+  }
+  return {
+    ok: true,
+    jobs: jobRows,
+    vault,
+    honesty:
+      "Job lock/release is escrow. windowSpent is the Safe rolling window. Do not add them together.",
+  };
+});
 
 app.get("/v1/flow/conversations", async (req) => {
   const wallet = String((req.query as { wallet?: string }).wallet ?? "");
   if (!wallet) return { ok: true, conversations: [] };
   const store = requireHistory();
   const conversations = await store.listConversations(getAddress(wallet));
-  return { ok: true, conversations };
+  return {
+    ok: true,
+    conversations: conversations.map((c) => {
+      const meta = historyMeta({
+        title: String((c as { title?: string }).title ?? ""),
+        lastMessage: (c as { last_message?: string | null }).last_message,
+        cards: parseCards((c as { last_cards?: unknown }).last_cards),
+      });
+      return {
+        ...c,
+        job_ids: meta.jobIds,
+        capability: meta.capability,
+        status: meta.status,
+      };
+    }),
+  };
 });
 
 app.post("/v1/flow/conversations", async (req) => {

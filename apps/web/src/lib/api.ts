@@ -301,6 +301,9 @@ export const api = {
         updated_at: string;
         created_at: string;
         last_message?: string | null;
+        job_ids?: string[];
+        capability?: string | null;
+        status?: string | null;
       }>;
     }>(`/v1/flow/conversations?wallet=${encodeURIComponent(wallet)}`),
   createFlowConversation: (wallet: string, title?: string, agentId?: string) =>
@@ -572,6 +575,8 @@ export const api = {
     amountInUnits: string;
     recipient: string;
     slippageBps?: number;
+    tokenIn?: string;
+    tokenOut?: string;
     sessionToken: string;
   }) => {
     const { sessionToken, ...payload } = body;

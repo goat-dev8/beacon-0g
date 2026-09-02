@@ -55,6 +55,9 @@ export type FlowConv = {
   updated_at: string;
   created_at: string;
   last_message?: string | null;
+  job_ids?: string[];
+  capability?: string | null;
+  status?: string | null;
 };
 
 export const WELCOME: ChatMsg = {
@@ -89,6 +92,8 @@ export const LIVE_CARD_TYPES = new Set([
   "media_clarify",
   "x402_quote",
   "media_result",
+  "inspect_result",
+  "quote",
   "authorization_receipt",
   "insufficient",
   "fdc_receipt",

@@ -20,6 +20,9 @@ export function serviceIdToTask(serviceId: string): ModelTask {
   const s = serviceId.toLowerCase();
   if (s === "video") return "video";
   if (["image", "design", "branding", "ui", "presentations"].includes(s)) return "image";
+  if (["research", "coding", "documents", "analysis", "marketing", "planning", "agents"].includes(s)) {
+    return "cheap";
+  }
   return "cheap";
 }
 
@@ -85,5 +88,10 @@ export const ZEROG_SERVICES: Array<{ id: DeskServiceId; name: string; descriptio
     id: "documents",
     name: "Documents",
     description: "Long-form via 0G Compute. Storage root on pass.",
+  },
+  {
+    id: "analysis",
+    name: "Analysis",
+    description: "RPC inspect first, then cheapest TeeML job. Proof on Storage. No invented ABI.",
   },
 ];

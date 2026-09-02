@@ -535,6 +535,7 @@ export function ActionCard({
     const symbolOut = String(card.symbolOut ?? "USDC.e");
     const est = String(card.estimatedOut ?? card.estimatedFxrp);
     const isSafe = card.mode === "beacon_safe" || card.requiresMetaMask === false;
+    const canExecute = isSafe && card.executableFromSafe !== false;
     const chainId = Number(card.chainId ?? 16661);
     if (!isSafe && (chainId === 14 || card.mode === "sparkdex_mainnet" || card.requiresChainSwitch)) {
       return (
@@ -575,6 +576,9 @@ export function ActionCard({
         </p>
         <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.warning)}</p>
         {card.honesty ? <p className="mt-1 text-xs text-amber-200/90">{String(card.honesty)}</p> : null}
+        {!canExecute && card.executeBlock ? (
+          <p className="mt-2 text-sm text-[var(--p-fg)]">{String(card.executeBlock)}</p>
+        ) : null}
         <FccHardwareStrip card={card} />
         {isSafe ? (
           <p className="mt-2 text-xs text-signal">
@@ -604,7 +608,7 @@ export function ActionCard({
               Connect wallet
             </button>
           )}
-          {wallet && swapStatus !== "confirmed" && (
+          {wallet && swapStatus !== "confirmed" && canExecute && (
             <button
               type="button"
               disabled={busy}
@@ -625,6 +629,8 @@ export function ActionCard({
                       amountInUnits: String(card.amountInDisplay),
                       recipient: wallet,
                       slippageBps: Number(card.slippageBps ?? 100),
+                      tokenIn: String(card.tokenIn ?? symbolIn),
+                      tokenOut: String(card.tokenOut ?? symbolOut),
                       sessionToken: session.token,
                     });
                     if (!("spendHash" in result) || !result.spendHash) {

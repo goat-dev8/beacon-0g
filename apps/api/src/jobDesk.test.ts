@@ -12,6 +12,7 @@ describe("serviceIdToTask", () => {
     expect(serviceIdToTask("research")).toBe("cheap");
     expect(serviceIdToTask("coding")).toBe("cheap");
     expect(serviceIdToTask("documents")).toBe("cheap");
+    expect(serviceIdToTask("analysis")).toBe("cheap");
   });
 
   it("keeps video as video so ENABLE_VIDEO can refuse it", () => {

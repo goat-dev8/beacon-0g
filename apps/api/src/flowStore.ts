@@ -83,7 +83,10 @@ export async function listConversations(pool: pg.Pool, wallet: string) {
     `SELECT c.id, c.title, c.agent_id, c.pinned, c.updated_at, c.created_at,
             (SELECT m.text FROM flow_messages m
              WHERE m.conversation_id = c.id
-             ORDER BY m.created_at DESC LIMIT 1) AS last_message
+             ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+            (SELECT m.cards_json FROM flow_messages m
+             WHERE m.conversation_id = c.id
+             ORDER BY m.created_at DESC LIMIT 1) AS last_cards
      FROM flow_conversations c
      WHERE LOWER(c.wallet) = LOWER($1) AND c.archived = FALSE
      ORDER BY c.pinned DESC, c.updated_at DESC

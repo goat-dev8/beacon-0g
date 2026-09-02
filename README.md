@@ -8,9 +8,10 @@ Beacon is a spend-bounded agent desk on **0G Aristotle** (chain id **16661**). T
 2. A job is quoted from `GET https://router-api.0g.ai/v1/models`. Catalog `pricing` is **neurons** (`1e18` neuron = `1` 0G).
 3. On-chain policy (caps, window, pause, allowlisted targets/selectors) is the spend boundary. TeeML may recommend ALLOW/DENY; missing `ZG-Res-Key` / `chatID` is **DENY**.
 4. Compute is 0G Router / Ledger. Storage evidence is encrypted (AES-256-CTR) then uploaded to 0G Storage (turbo indexer). Failures throw — there is no in-memory “success”.
-5. Optional Zia swap: live factory pools from the [Zia mainnet token list](https://docs.zia.finance/0g-mainnet/mainnet-tokens). Native 0G wraps to W0G, then `exactInputSingle`. Zero or thin `amountOut` is refused. There is no second DEX.
+5. Optional Zia swap: live factory pools from the [Zia mainnet token list](https://docs.zia.finance/0g-mainnet/mainnet-tokens). Native 0G wraps to W0G, then `exactInputSingle`. Token→0G quotes are live; Safe **execution** is refused because `wealth()` is native+W0G only. Zero or thin `amountOut` is refused. There is no second DEX.
 6. Public `/verify/:jobId` is a forensic receipt (on-chain registry is authoritative). Jobs results include a **View proof** button.
 7. Address/tx inspect is live Aristotle RPC only. Beacon does not invent ABIs. Bridges are catalogued from Zia docs / Hub / get.0g.ai and are **not** executable from the Beacon Safe.
+8. MCP grants persist in Redis (`/flow/mcp`). ERC-8004 `register()` is live; `giveFeedback` is probed on-chain and never faked.
 
 x402 and video generation are **off** by default (`ENABLE_X402=false`, `ENABLE_VIDEO=false`). This repo does not call cloud LLM fallbacks.
 

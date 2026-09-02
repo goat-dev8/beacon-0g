@@ -17,6 +17,7 @@ export type ConversationRow = {
   created_at: string;
   updated_at: string;
   last_message?: string | null;
+  last_cards?: unknown[] | null;
 };
 
 export type MessageRow = {
@@ -94,9 +95,11 @@ export async function listConversations(client: RedisRest, wallet: string): Prom
     if (!row || row.archived) continue;
     if (row.wallet.toLowerCase() !== wallet.toLowerCase()) continue;
     const last = (await redisCmd(client, ["LINDEX", msgKey(row.id), -1])) as string | null;
+    const lastMsg = last ? (JSON.parse(last) as MessageRow) : null;
     out.push({
       ...row,
-      last_message: last ? (JSON.parse(last) as MessageRow).text : null,
+      last_message: lastMsg?.text ?? null,
+      last_cards: lastMsg?.cards_json ?? null,
     });
   }
   return out.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.updated_at) - Date.parse(a.updated_at));

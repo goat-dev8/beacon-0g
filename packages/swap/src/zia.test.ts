@@ -10,10 +10,11 @@ import {
 import { encodeV3Path } from "./path.js";
 import {
   THIN_LIQUIDITY,
+  quoteExactIn,
+  quoteZiaPair,
   buildSwapTx,
   encodeExactInputSingle,
   exactInputSingleSelector,
-  quoteExactIn,
 } from "./zia.js";
 
 const env = loadEnv({
@@ -113,6 +114,35 @@ describe("quoteExactIn", () => {
   });
 });
 
+describe("quoteZiaPair", () => {
+  it("quotes reverse USDC.e → 0G but refuses Safe execution", async () => {
+    const q = await quoteZiaPair({
+      amountIn: 1000n,
+      tokenIn: "USDC.e",
+      tokenOut: "0G",
+      env,
+      probeWei: 0n,
+      call: async () => encodeQuoteReturn(10n ** 15n),
+    });
+    expect(q.amountOut).toBeGreaterThan(0n);
+    expect(q.executableFromSafe).toBe(false);
+    expect(q.executeBlock).toMatch(/unexpected credit/i);
+  });
+
+  it("marks native 0G → USDC as Safe-executable", async () => {
+    const q = await quoteZiaPair({
+      amountIn: 10n ** 18n,
+      tokenIn: "0G",
+      tokenOut: "USDC",
+      env,
+      probeWei: 0n,
+      call: async () => encodeQuoteReturn(200_000n),
+    });
+    expect(q.wrapNative).toBe(true);
+    expect(q.executableFromSafe).toBe(true);
+  });
+});
+
 describe("buildSwapTx", () => {
   it("builds deposit + approve + exactInputSingle for the vault", async () => {
     const quote = await quoteExactIn(10n ** 18n, {
@@ -128,5 +158,19 @@ describe("buildSwapTx", () => {
     expect(built.calls[0].maxSpend).toBe(0n);
     expect(built.calls[1].maxSpend).toBe(0n);
     expect(built.calls[0].value).toBe(quote.amountIn);
+  });
+
+  it("skips W0G deposit when wrapNative is false", async () => {
+    const quote = await quoteZiaPair({
+      amountIn: 10n ** 18n,
+      tokenIn: "W0G",
+      tokenOut: "USDC",
+      env,
+      probeWei: 0n,
+      call: async () => encodeQuoteReturn(200_000n),
+    });
+    const built = buildSwapTx(quote, "0x00000000000000000000000000000000000000aa", { wrapNative: false });
+    expect(built.calls).toHaveLength(2);
+    expect(built.calls[0].value).toBe(0n);
   });
 });

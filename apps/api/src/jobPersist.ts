@@ -62,6 +62,23 @@ export async function putLastJobId(client: RedisRest, wallet: string, jobId: str
   const addr = wallet.trim().toLowerCase();
   if (!addr.startsWith("0x") || addr === "0x0000000000000000000000000000000000000000") return;
   await redisCmd(client, ["SET", `job:last:${addr}`, jobId]);
+  await redisCmd(client, ["LPUSH", `job:w:${addr}`, jobId]);
+  await redisCmd(client, ["LTRIM", `job:w:${addr}`, 0, 99]);
+}
+
+export async function listWalletJobIds(client: RedisRest, wallet: string): Promise<string[]> {
+  const addr = wallet.trim().toLowerCase();
+  if (!addr.startsWith("0x")) return [];
+  const raw = await redisCmd(client, ["LRANGE", `job:w:${addr}`, 0, 49]);
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of raw.map(String)) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 export async function getLastJobId(client: RedisRest, wallet: string): Promise<string | null> {

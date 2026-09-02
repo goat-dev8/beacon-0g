@@ -18,8 +18,8 @@ import {
   loadEnv,
   type BeaconEnv,
 } from "@beacon/shared";
-import { w0gUsdcePath } from "./path.js";
-import { resolveZiaToken } from "./tokens.js";
+import { w0gUsdcePath, encodeV3Path } from "./path.js";
+import { resolveZiaToken, ZIA_FEE_TIERS } from "./tokens.js";
 
 const THIN_LIQUIDITY =
   "Beacon refused this swap because verified liquidity is insufficient.";
@@ -52,6 +52,11 @@ export type ZiaQuote = {
   impactBps: number;
   quoter: string;
   router: string;
+  wrapNative: boolean;
+  tokenInSymbol: string;
+  tokenOutSymbol: string;
+  executableFromSafe: boolean;
+  executeBlock: string | null;
 };
 
 export type VaultCall = {
@@ -188,6 +193,114 @@ export async function quoteExactIn(
     impactBps,
     quoter,
     router,
+    wrapNative: true,
+    tokenInSymbol: "0G",
+    tokenOutSymbol: resolveZiaToken(usdce)?.symbol ?? "USDC",
+    executableFromSafe: true,
+    executeBlock: null,
+  };
+}
+
+export async function quoteZiaPair(opts: {
+  amountIn: bigint;
+  tokenIn: string;
+  tokenOut: string;
+  env?: BeaconEnv;
+  provider?: Provider;
+  call?: EthCall;
+  slippageBps?: number;
+  probeWei?: bigint;
+}): Promise<ZiaQuote> {
+  const env = opts.env ?? loadEnv();
+  if (!env.ENABLE_SWAP) {
+    throw new AppError("SWAP_REFUSED", { message: THIN_LIQUIDITY });
+  }
+  if (opts.amountIn <= 0n) {
+    throw new AppError("VALIDATION", { message: "amountIn must be > 0." });
+  }
+  const tokenIn = resolveZiaToken(opts.tokenIn);
+  const tokenOut = resolveZiaToken(opts.tokenOut);
+  if (!tokenIn || !tokenOut) {
+    throw new AppError("SWAP_REFUSED", {
+      message: "Beacon cannot verify a viable Zia route for this pair.",
+    });
+  }
+  if (tokenIn.address.toLowerCase() === tokenOut.address.toLowerCase()) {
+    throw new AppError("SWAP_REFUSED", {
+      message: "Beacon cannot verify a viable Zia route for this pair.",
+    });
+  }
+
+  const quoter = getAddress((env.ZIA_QUOTER || ZIA_QUOTER).toLowerCase());
+  const router = getAddress((env.ZIA_ROUTER || ZIA_ROUTER).toLowerCase());
+  const call =
+    opts.call ??
+    ethCallFromProvider(opts.provider ?? new JsonRpcProvider(env.ZEROG_RPC_URL, env.CHAIN_ID));
+  const slippageBps = opts.slippageBps ?? 50;
+
+  let fee = ZIA_DEFAULT_FEE;
+  let path = encodeV3Path(tokenIn.address, fee, tokenOut.address);
+  let amountOut = 0n;
+  for (const candidate of ZIA_FEE_TIERS) {
+    const candidatePath = encodeV3Path(tokenIn.address, candidate, tokenOut.address);
+    try {
+      const out = await quotePath(call, quoter, candidatePath, opts.amountIn);
+      if (out > 0n) {
+        fee = candidate;
+        path = candidatePath;
+        amountOut = out;
+        break;
+      }
+    } catch {
+      /* try next fee tier */
+    }
+  }
+  if (amountOut === 0n) {
+    throw new AppError("SWAP_REFUSED", {
+      message: "Beacon cannot verify a viable Zia route for this pair.",
+    });
+  }
+
+  const probeWei = opts.probeWei ?? (opts.amountIn > 10n ? opts.amountIn / 10n : 0n);
+  let impactBps = 0;
+  if (probeWei > 0n && probeWei < opts.amountIn) {
+    const probeOut = await quotePath(call, quoter, path, probeWei);
+    if (probeOut === 0n) {
+      throw new AppError("SWAP_REFUSED", { message: THIN_LIQUIDITY });
+    }
+    const expected = (probeOut * opts.amountIn) / probeWei;
+    if (expected > amountOut) {
+      impactBps = Number(((expected - amountOut) * 10_000n) / expected);
+    }
+  }
+  if (impactBps > env.MAX_IMPACT_BPS) {
+    throw new AppError("SWAP_REFUSED", { message: THIN_LIQUIDITY, details: { impactBps } });
+  }
+  const minOut = amountOut - applyBps(amountOut, slippageBps);
+  if (minOut <= 0n) {
+    throw new AppError("SWAP_REFUSED", { message: THIN_LIQUIDITY });
+  }
+
+  const wrapNative = Boolean(tokenIn.native);
+  const executableFromSafe = wrapNative || tokenIn.symbol === "W0G";
+  return {
+    tokenIn: tokenIn.address,
+    tokenOut: tokenOut.address,
+    fee,
+    path,
+    amountIn: opts.amountIn,
+    amountOut,
+    minOut,
+    impactBps,
+    quoter,
+    router,
+    wrapNative,
+    tokenInSymbol: tokenIn.symbol,
+    tokenOutSymbol: tokenOut.native ? "0G" : tokenOut.symbol,
+    executableFromSafe,
+    executeBlock: executableFromSafe
+      ? null
+      : "Beacon Safe wealth() is native 0G + W0G. A swap that credits W0G reverts (unexpected credit). Quote is live; Safe execution is refused.",
   };
 }
 
@@ -239,15 +352,15 @@ export function encodeVaultExecute(call: {
   ]) as `0x${string}`;
 }
 
-/** Path A: W0G.deposit{value} + approve + exactInputSingle. Recipient = vault. */
+/** Path A: optional W0G.deposit{value} + approve + exactInputSingle. Recipient = vault. */
 export function buildSwapTx(
   quote: ZiaQuote,
   vault: string,
-  opts: { nonce?: bigint; deadlineSeconds?: number } = {},
+  opts: { nonce?: bigint; deadlineSeconds?: number; wrapNative?: boolean } = {},
 ): BuiltSwapTx {
   const recipient = getAddress(vault);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + (opts.deadlineSeconds ?? 1200));
-  const depositData = W0G_IFACE.encodeFunctionData("deposit") as `0x${string}`;
+  const wrapNative = opts.wrapNative ?? quote.wrapNative ?? true;
   const approveData = W0G_IFACE.encodeFunctionData("approve", [quote.router, quote.amountIn]) as `0x${string}`;
   const swapData = encodeExactInputSingle({
     tokenIn: quote.tokenIn,
@@ -259,14 +372,18 @@ export function buildSwapTx(
     amountOutMinimum: quote.minOut,
   });
 
-  const calls: VaultCall[] = [
-    {
+  const calls: VaultCall[] = [];
+  if (wrapNative) {
+    const depositData = W0G_IFACE.encodeFunctionData("deposit") as `0x${string}`;
+    calls.push({
       target: quote.tokenIn,
       data: depositData,
       value: quote.amountIn,
       maxSpend: 0n,
       selector: depositData.slice(0, 10) as `0x${string}`,
-    },
+    });
+  }
+  calls.push(
     {
       target: quote.tokenIn,
       data: approveData,
@@ -278,10 +395,10 @@ export function buildSwapTx(
       target: quote.router,
       data: swapData,
       value: 0n,
-      maxSpend: quote.amountIn,
+      maxSpend: quote.executableFromSafe ? quote.amountIn : 0n,
       selector: EXACT_INPUT_SINGLE_SELECTOR,
     },
-  ];
+  );
 
   return {
     quote,

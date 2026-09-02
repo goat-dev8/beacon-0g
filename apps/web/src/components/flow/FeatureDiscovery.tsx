@@ -34,9 +34,24 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
   {
     id: "swap",
     title: "Swap",
-    blurb: "Quote 0G → USDC.e on Zia. Thin books are refused. Recipient stays the Safe.",
+    blurb: "Quote 0G → USDC.e / ST0G / WBTC on Zia. Reverse quotes are live; Safe execution is refused.",
     prompt: "Swap 0.2 0G to USDC.e",
     icon: ArrowLeftRight,
+    accent: true,
+  },
+  {
+    id: "reverse",
+    title: "Reverse quote",
+    blurb: "USDC.e → 0G is a live Zia quote. Beacon Safe cannot execute it (wealth would credit W0G).",
+    prompt: "Swap 0.001 USDC.e to 0G",
+    icon: ArrowLeftRight,
+  },
+  {
+    id: "inspect",
+    title: "Inspect",
+    blurb: "Live Aristotle RPC for a contract or tx. No invented ABI. Optional paid TeeML explanation.",
+    prompt: "Inspect 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E",
+    icon: Crosshair,
     accent: true,
   },
   {
@@ -57,9 +72,23 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
   {
     id: "research",
     title: "Research",
-    blurb: "Brief a protocol or topic. Quotes stay in 0G. Results get a Storage root.",
-    prompt: "Analyze this wallet.",
+    blurb: "Brief a protocol or topic. Quotes stay in 0G. Results get a Storage root and View proof.",
+    prompt: "Research 0G Storage proofs and quote a cheap job.",
     icon: Sparkles,
+  },
+  {
+    id: "analyze",
+    title: "Analyze wallet",
+    blurb: "Inspect the connected wallet on Aristotle, then quote a cheap explanation job.",
+    prompt: "Analyze this wallet.",
+    icon: Crosshair,
+  },
+  {
+    id: "bridge",
+    title: "Bridge",
+    blurb: "Hub, Stargate, Interport, Portal. Not executable from the Aristotle Safe.",
+    prompt: "How do I bridge to 0G?",
+    icon: Landmark,
   },
   {
     id: "signals",

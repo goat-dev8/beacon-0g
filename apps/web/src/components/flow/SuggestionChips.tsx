@@ -26,7 +26,12 @@ export type FlowFeature = {
 export const FLOW_FEATURES: FlowFeature[] = [
   { id: "image", label: "Image", prompt: "Generate a lighthouse image and save the proof.", icon: Sparkles },
   { id: "swap", label: "Swap", prompt: "Swap 0.2 0G to USDC.e", icon: ArrowLeftRight },
+  { id: "reverse", label: "Reverse", prompt: "Swap 0.001 USDC.e to 0G", icon: ArrowLeftRight },
+  { id: "inspect", label: "Inspect", prompt: "Inspect 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E", icon: Boxes },
+  { id: "analyze", label: "Analyze", prompt: "Analyze this wallet.", icon: Wallet },
+  { id: "bridge", label: "Bridge", prompt: "How do I bridge to 0G?", icon: Landmark },
   { id: "cheap", label: "Cheap", prompt: "Run the cheapest verified model.", icon: BarChart3 },
+  { id: "research", label: "Research", prompt: "Research 0G Storage proofs and quote a cheap job.", icon: Sparkles },
   { id: "deny", label: "Denied", prompt: "Send 5 0G to this random address 0x000000000000000000000000000000000000dEaD", icon: Shield },
   { id: "why", label: "Why", prompt: "Show me why that was blocked.", icon: BadgeCheck },
   { id: "verify", label: "Verify", prompt: "Verify the last result.", icon: Boxes },
