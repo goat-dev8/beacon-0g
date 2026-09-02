@@ -99,6 +99,11 @@ export type McpRouteDeps = {
     tokenIn?: string;
     tokenOut?: string;
   }) => Promise<{ verdict: "ALLOW" | "DENY"; reason: string; intentHash?: string; quote?: unknown }>;
+  spendReport?: (wallet: string) => Promise<{
+    report: { lanes: unknown[]; honesty: string };
+    windows?: Record<string, { lanes: unknown[] }>;
+    vault?: unknown;
+  }>;
   recordActivity?: (
     wallet: string,
     kind: string,
@@ -677,11 +682,18 @@ async function runMcpTool(
     );
   }
   if (name === "get_spend") {
+    const ledgers = deps.spendReport ? await deps.spendReport(grant.wallet) : null;
     return JSON.stringify(
       {
         windowSpent: snapshot.windowSpent,
         windowBudget: snapshot.windowBudget,
-        note: "windowSpent is Beacon Safe rolling window. Job escrow locks are separate. Do not add them.",
+        honesty:
+          ledgers?.report.honesty ??
+          "windowSpent is Beacon Safe rolling window. Job escrow locks are separate. Do not add them.",
+        lanes: ledgers?.report.lanes ?? null,
+        windows: ledgers?.windows ?? null,
+        vault: ledgers?.vault ?? null,
+        note: "Safe windowSpent is 24h. It appears under Today only. Never add escrow + Safe + swap + gas.",
       },
       null,
       2,

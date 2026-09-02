@@ -348,7 +348,19 @@ export function ResultExperience({
             className="mx-auto max-h-[min(70vh,640px)] w-full rounded-xl bg-ink"
           />
         )}
-        {mode === "artifact" && isText && body && <SafeMarkdown text={body} />}
+        {mode === "artifact" && isText && body && (
+          <>
+            <SafeMarkdown text={body} />
+            <p className="mt-4 font-mono text-[11px] text-ink-faint">
+              {liveModel ?? quote?.breakdown?.model ?? "0G Compute"}
+              {quote?.priceDisplay ? ` · lock ${quote.priceDisplay}` : ""}
+              {" · "}
+              <a className="underline decoration-line underline-offset-2 hover:text-ink" href={`/verify/${jobId}`}>
+                Verify proof
+              </a>
+            </p>
+          </>
+        )}
         {mode === "artifact" &&
           !body &&
           !isImage &&

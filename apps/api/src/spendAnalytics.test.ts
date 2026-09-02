@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parse0g } from "@beacon/shared";
 import {
+  cheaperSavingsWei,
   collectSpendHashes,
   composeSpendReport,
+  composeSpendWindows,
   parseSwapPrincipal,
   pickProvenJob,
   receiptGasWei,
@@ -56,5 +58,47 @@ describe("spend analytics", () => {
       [{ kind: "swap", title: "x", ref_id: h, explorer_url: `https://chainscan.0g.ai/tx/${h}` }],
     );
     expect(hashes).toHaveLength(1);
+  });
+
+  it("shows Safe window only under Today and never invents 7d/30d vault spend", () => {
+    const now = Date.parse("2026-09-02T12:00:00.000Z");
+    const windows = composeSpendWindows({
+      now,
+      windowSpent: parse0g("0.5"),
+      jobs: [
+        {
+          id: "today",
+          status: "CLOSED",
+          lock0g: parse0g("0.001"),
+          createdAt: "2026-09-02T10:00:00.000Z",
+        },
+        {
+          id: "week",
+          status: "CLOSED",
+          lock0g: parse0g("0.002"),
+          createdAt: "2026-08-28T10:00:00.000Z",
+        },
+      ],
+      activity: [
+        { kind: "swap", title: "Beacon Safe 0G→ST0G · 0.01", createdAt: "2026-09-02T11:00:00.000Z" },
+        { kind: "swap", title: "Beacon Safe 0G→ST0G · 0.02", createdAt: "2026-08-10T11:00:00.000Z" },
+      ],
+      gasByHash: {},
+    });
+    expect(windows["1d"].lanes.find((l) => l.id === "safe")?.amount0g).toBe("0.5 0G");
+    expect(windows["7d"].lanes.find((l) => l.id === "safe")?.amount0g).toBe("0 0G");
+    expect(windows["30d"].lanes.find((l) => l.id === "safe")?.amount0g).toBe("0 0G");
+    expect(windows["1d"].lanes.find((l) => l.id === "escrow")?.amount0g).toBe("0.001 0G");
+    expect(windows["7d"].lanes.find((l) => l.id === "escrow")?.amount0g).toBe("0.003 0G");
+    expect(windows["30d"].lanes.find((l) => l.id === "escrow")?.amount0g).toBe("0.003 0G");
+    expect(windows["1d"].lanes.find((l) => l.id === "swap")?.amount0g).toBe("0.01 0G");
+    expect(windows["7d"].lanes.find((l) => l.id === "swap")?.amount0g).toBe("0.01 0G");
+    expect(windows["30d"].lanes.find((l) => l.id === "swap")?.amount0g).toBe("0.03 0G");
+  });
+
+  it("states cheaper savings in wei without inventing a comparison", () => {
+    expect(cheaperSavingsWei({ lock0g: parse0g("0.01"), task: "cheap" }, parse0g("0.004"))).toBe(parse0g("0.006"));
+    expect(cheaperSavingsWei({ lock0g: parse0g("0.01"), task: "image" }, parse0g("0.004"))).toBe(0n);
+    expect(cheaperSavingsWei(null, parse0g("0.004"))).toBe(0n);
   });
 });

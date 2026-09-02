@@ -30,7 +30,8 @@ export const MCP_TOOL_DEFS: McpToolDef[] = [
   },
   {
     name: "get_spend",
-    description: "Get remaining daily / per-tx 0G budget for this vault session.",
+    description:
+      "Four spend ledgers for 1d / 7d / 30d. Safe windowSpent is 24h and shown under Today only. Never add lanes.",
     scope: "read:spend",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },

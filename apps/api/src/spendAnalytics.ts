@@ -7,6 +7,7 @@ export type SpendJob = {
   lockTx?: string | null;
   releaseTx?: string | null;
   refundTx?: string | null;
+  createdAt?: string | null;
 };
 
 export type SpendActivity = {
@@ -15,6 +16,7 @@ export type SpendActivity = {
   ref_id?: string | null;
   explorer_url?: string | null;
   meta?: Record<string, unknown> | null;
+  createdAt?: string | null;
 };
 
 export type SpendLane = {
@@ -29,7 +31,28 @@ export type SpendReport = {
   honesty: string;
   jobIds: string[];
   hashes: string[];
+  window: "1d" | "7d" | "30d" | "all";
 };
+
+export const SPEND_WINDOW_MS = {
+  "1d": 24 * 3600 * 1000,
+  "7d": 7 * 24 * 3600 * 1000,
+  "30d": 30 * 24 * 3600 * 1000,
+} as const;
+
+export function inSpendWindow(iso: string | null | undefined, windowMs: number, now = Date.now()): boolean {
+  if (!iso) return false;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) && t <= now + 60_000 && now - t <= windowMs;
+}
+
+export function spendTimestamp(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  const s = String(value);
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
 
 const HASH = /0x[a-fA-F0-9]{64}/;
 
@@ -99,6 +122,8 @@ export function composeSpendReport(input: {
   windowSpent?: bigint | null;
   activity: SpendActivity[];
   gasWei: bigint;
+  window?: SpendReport["window"];
+  includeSafeWindow?: boolean;
 }): SpendReport {
   let escrowSettled = 0n;
   let escrowOpen = 0n;
@@ -117,7 +142,11 @@ export function composeSpendReport(input: {
     if (row.kind !== "swap") continue;
     swapPrincipal += parseSwapPrincipal(row.title, row.meta);
   }
-  const windowSpent = input.windowSpent ?? 0n;
+  const windowSpent = input.includeSafeWindow === false ? 0n : (input.windowSpent ?? 0n);
+  const safeNote =
+    input.includeSafeWindow === false
+      ? "On-chain Safe window is 24h. It is shown under Today only — not summed into 7d/30d."
+      : "Vault rolling window. Includes Zia principal. Do not add to escrow.";
 
   const lanes: SpendLane[] = [
     {
@@ -132,7 +161,7 @@ export function composeSpendReport(input: {
       id: "safe",
       label: "Safe window",
       amount0g: format0g(windowSpent),
-      note: "Vault rolling window. Includes Zia principal. Do not add to escrow.",
+      note: safeNote,
     },
     {
       id: "swap",
@@ -154,5 +183,42 @@ export function composeSpendReport(input: {
       "Four ledgers. Escrow ≠ Safe window ≠ gas. Swap principal is already inside the Safe window — never add swap + Safe.",
     jobIds: input.jobs.map((j) => j.id),
     hashes: collectSpendHashes(input.jobs, input.activity),
+    window: input.window ?? "all",
   };
+}
+
+export function composeSpendWindows(input: {
+  jobs: SpendJob[];
+  activity: SpendActivity[];
+  windowSpent?: bigint | null;
+  gasByHash: Record<string, bigint>;
+  now?: number;
+}): Record<"1d" | "7d" | "30d", SpendReport> {
+  const now = input.now ?? Date.now();
+  const slice = (id: "1d" | "7d" | "30d"): SpendReport => {
+    const ms = SPEND_WINDOW_MS[id];
+    const jobs = input.jobs.filter((j) => inSpendWindow(j.createdAt, ms, now));
+    const activity = input.activity.filter((a) => inSpendWindow(a.createdAt, ms, now));
+    let gasWei = 0n;
+    for (const h of collectSpendHashes(jobs, activity)) {
+      gasWei += input.gasByHash[h.toLowerCase()] ?? 0n;
+    }
+    return composeSpendReport({
+      jobs,
+      activity,
+      windowSpent: input.windowSpent,
+      gasWei,
+      window: id,
+      includeSafeWindow: id === "1d",
+    });
+  };
+  return { "1d": slice("1d"), "7d": slice("7d"), "30d": slice("30d") };
+}
+
+export function cheaperSavingsWei(
+  last: { lock0g: bigint; task: string } | null,
+  nextLock: bigint,
+): bigint {
+  if (!last || last.task === "image") return 0n;
+  return last.lock0g > nextLock ? last.lock0g - nextLock : 0n;
 }

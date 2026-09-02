@@ -5,6 +5,8 @@ import { apiBase } from "@/lib/publicEnv";
 import { proofOutcome } from "@/lib/verifyProof";
 import { compareReceipts, compareChatIdHash, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
 import { compareResultHash, resultSha256 } from "@/lib/resultHash";
+import { SafeMarkdown } from "@/components/SafeMarkdown";
+import "highlight.js/styles/github-dark.css";
 
 type OnchainReceipt = {
   storageRoot?: string;
@@ -24,7 +26,7 @@ type VerifyPayload = {
   job: {
     id: string;
     status: string;
-    quote?: { modelId?: string; lock0gDisplay?: string; quoteHash?: string };
+    quote?: { modelId?: string; lock0gDisplay?: string; quoteHash?: string; provider?: string; verifiability?: string };
     tee?: {
       allow?: boolean;
       reason?: string;
@@ -46,7 +48,41 @@ type VerifyPayload = {
     resultText?: string | null;
     resultSha256?: string | null;
     denial?: string | null;
+    createdAt?: string | null;
   } | null;
+  identity?: {
+    agentId?: string;
+    identity?: string;
+    reputation?: string;
+    owner?: string | null;
+    tokenURI?: string | null;
+    giveFeedback?: string;
+    card?: string;
+    explorerIdentity?: string;
+    explorerReputation?: string;
+    feedbackTx?: string | null;
+    feedbackIndex?: string | null;
+  };
+  provenance?: {
+    jobId?: string;
+    createdAt?: string;
+    modelId?: string;
+    provider?: string;
+    verifiability?: string;
+    catalogHash?: string;
+    quoteHash?: string;
+    lock0g?: string;
+    teeChatId?: string | null;
+    recoveredSigner?: string | null;
+    expectedSigner?: string | null;
+    storageRoot?: string | null;
+    resultSha256?: string | null;
+    txs?: Record<string, string | null>;
+  } | null;
+  related?: {
+    swaps?: Array<{ title?: string; explorer_url?: string | null; ref_id?: string | null }>;
+    bridges?: Array<{ title?: string; explorer_url?: string | null; ref_id?: string | null }>;
+  };
   note?: string | null;
 };
 
@@ -287,9 +323,39 @@ export function VerifyPage() {
                   >
                     Download .md
                   </button>
+                  <button
+                    type="button"
+                    className="rounded-full border px-3 py-1.5 text-sm"
+                    style={{ borderColor: LINE, color: FG }}
+                    onClick={() => {
+                      const blob = new Blob([job.resultText ?? ""], { type: "text/plain;charset=utf-8" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `beacon-${(job.id ?? "result").slice(0, 8)}.txt`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    Download .txt
+                  </button>
                 </div>
               ) : null}
             </section>
+
+            {job?.resultText ? (
+              <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                  Result
+                </p>
+                <div className="mt-3 text-sm" style={{ color: FG }}>
+                  <SafeMarkdown
+                    text={job.resultText}
+                    className="max-w-none overflow-x-auto text-[15px] leading-7 [&_a]:text-[#39e08a] [&_code]:font-mono [&_code]:text-[13px] [&_li]:my-1 [&_p]:my-3 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-[#2a312c] [&_pre]:bg-[#0d1117] [&_pre]:p-4 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-[#2a312c] [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_th]:border-[#2a312c] [&_th]:px-2 [&_th]:py-1.5"
+                  />
+                </div>
+              </section>
+            ) : null}
 
             <section>
               <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
@@ -331,6 +397,101 @@ export function VerifyPage() {
                 {job?.denial && <Meta label="Denied" value={job.denial} tone="fail" />}
               </dl>
             </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                Provenance
+              </h2>
+              <dl className="mt-4 grid gap-4 text-sm">
+                <Meta label="Created" value={data?.provenance?.createdAt ?? job?.createdAt} />
+                <Meta label="Model" value={data?.provenance?.modelId ?? job?.quote?.modelId} />
+                <Meta label="Provider" value={data?.provenance?.provider ?? job?.quote?.provider} />
+                <Meta label="Verifiability" value={data?.provenance?.verifiability ?? job?.quote?.verifiability} />
+                <HashRow label="Quote hash" value={data?.provenance?.quoteHash ?? job?.quote?.quoteHash} />
+                <HashRow label="Catalog hash" value={data?.provenance?.catalogHash} />
+                <HashRow label="TEE chat id" value={data?.provenance?.teeChatId ?? job?.tee?.chatId} />
+                <HashRow
+                  label="Recovered signer"
+                  value={data?.provenance?.recoveredSigner ?? job?.tee?.recoveredSigner}
+                  href={
+                    (data?.provenance?.recoveredSigner ?? job?.tee?.recoveredSigner)
+                      ? explorerAddress(data?.provenance?.recoveredSigner ?? job?.tee?.recoveredSigner ?? "")
+                      : undefined
+                  }
+                />
+                <HashRow label="Result SHA-256" value={data?.provenance?.resultSha256 ?? job?.resultSha256} />
+              </dl>
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                Agent identity
+              </h2>
+              <dl className="mt-4 grid gap-4 text-sm">
+                <Meta label="Agent id" value={data?.identity?.agentId} />
+                <Meta label="giveFeedback" value={data?.identity?.giveFeedback} />
+                <HashRow
+                  label="Identity registry"
+                  value={data?.identity?.identity}
+                  href={data?.identity?.explorerIdentity}
+                />
+                <HashRow
+                  label="Reputation registry"
+                  value={data?.identity?.reputation}
+                  href={data?.identity?.explorerReputation}
+                />
+                <HashRow
+                  label="Owner"
+                  value={data?.identity?.owner}
+                  href={data?.identity?.owner ? explorerAddress(data.identity.owner) : undefined}
+                />
+                <HashRow label="Agent card" value={data?.identity?.card} href={data?.identity?.card} />
+                <HashRow
+                  label="This job feedback"
+                  value={data?.identity?.feedbackTx ?? job?.feedbackTx}
+                  href={
+                    (data?.identity?.feedbackTx ?? job?.feedbackTx)
+                      ? explorerTx(data?.identity?.feedbackTx ?? job?.feedbackTx ?? "")
+                      : undefined
+                  }
+                />
+              </dl>
+            </section>
+
+            {(data?.related?.swaps?.length || data?.related?.bridges?.length) ? (
+              <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+                <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                  Related Safe activity
+                </h2>
+                <p className="mt-2 text-sm" style={{ color: MUTED }}>
+                  Recent recorded swaps and bridges for this wallet. Hashes are explorer links — not this job unless they match.
+                </p>
+                <ul className="mt-3 space-y-2 text-sm">
+                  {(data.related?.swaps ?? []).map((row, i) => (
+                    <li key={`swap-${i}`}>
+                      {row.explorer_url ? (
+                        <a href={row.explorer_url} target="_blank" rel="noreferrer" style={{ color: ACCENT }}>
+                          {row.title ?? "Swap"}
+                        </a>
+                      ) : (
+                        <span>{row.title ?? "Swap"}</span>
+                      )}
+                    </li>
+                  ))}
+                  {(data.related?.bridges ?? []).map((row, i) => (
+                    <li key={`bridge-${i}`}>
+                      {row.explorer_url ? (
+                        <a href={row.explorer_url} target="_blank" rel="noreferrer" style={{ color: ACCENT }}>
+                          {row.title ?? "Bridge"}
+                        </a>
+                      ) : (
+                        <span>{row.title ?? "Bridge"}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
               <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>

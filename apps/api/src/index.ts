@@ -51,10 +51,13 @@ import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
 import { classifyFlowIntent, wantsPaidExplanation } from "./flowRouter.js";
 import { parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
 import {
+  cheaperSavingsWei,
   collectSpendHashes,
   composeSpendReport,
+  composeSpendWindows,
   pickProvenJob,
   receiptGasWei,
+  spendTimestamp,
   type SpendActivity,
   type SpendJob,
 } from "./spendAnalytics.js";
@@ -425,6 +428,7 @@ function serializeJob(job: StoredJob) {
     storageScan: job.storageRoot
       ? `${env.ZEROG_STORAGE_SCAN.replace(/\/$/, "")}/?root=${job.storageRoot}`
       : null,
+    createdAt: job.createdAt,
     resultText: job.resultText ?? null,
     resultSha256: job.resultText ? sha256Utf8(job.resultText) : null,
     imageB64: job.imageB64 ?? null,
@@ -1364,11 +1368,80 @@ app.get("/v1/verify/:id", async (req) => {
       onchain = null;
     }
   }
+  let identityStatus: Awaited<ReturnType<typeof probeErc8004>> | null = null;
+  try {
+    identityStatus = await probeErc8004(provider, {
+      identity: env.ERC8004_IDENTITY,
+      reputation: env.ERC8004_REPUTATION,
+      ownerCandidate: settler?.address,
+    });
+  } catch {
+    identityStatus = null;
+  }
+  const related = { swaps: [] as unknown[], bridges: [] as unknown[] };
+  if (job?.wallet && history) {
+    try {
+      const rows = await history.listActivity(getAddress(job.wallet));
+      for (const row of rows) {
+        const kind = String((row as { kind?: string }).kind ?? "");
+        const item = {
+          kind,
+          title: String((row as { title?: string }).title ?? ""),
+          ref_id: (row as { ref_id?: string | null }).ref_id ?? null,
+          explorer_url: (row as { explorer_url?: string | null }).explorer_url ?? null,
+          created_at: (row as { created_at?: string }).created_at ?? null,
+        };
+        if (kind === "swap" && related.swaps.length < 5) related.swaps.push(item);
+        if (kind === "bridge" && related.bridges.length < 5) related.bridges.push(item);
+      }
+    } catch {
+      /* verify stays job-first if history is down */
+    }
+  }
   return {
     chainId: env.CHAIN_ID,
     explorer: env.ZEROG_EXPLORER,
     job: job ? serializeJob(job) : null,
     onchain,
+    identity: {
+      agentId: identityStatus?.agentId ?? ERC8004_AGENT_ID.toString(),
+      identity: identityStatus?.identity ?? env.ERC8004_IDENTITY,
+      reputation: identityStatus?.reputation ?? env.ERC8004_REPUTATION,
+      owner: identityStatus?.agentOwner ?? null,
+      tokenURI: identityStatus?.tokenURI ?? null,
+      giveFeedback: identityStatus?.giveFeedback ?? "UNKNOWN",
+      clients: identityStatus?.clients ?? [],
+      card: `${env.APP_URL.replace(/\/$/, "")}/.well-known/agent-card.json`,
+      explorerIdentity: identityStatus?.explorerIdentity ?? `${env.ZEROG_EXPLORER.replace(/\/$/, "")}/address/${env.ERC8004_IDENTITY}`,
+      explorerReputation: identityStatus?.explorerReputation ?? `${env.ZEROG_EXPLORER.replace(/\/$/, "")}/address/${env.ERC8004_REPUTATION}`,
+      feedbackTx: job?.feedbackTx ?? null,
+      feedbackIndex: job?.feedbackIndex ?? null,
+    },
+    provenance: job
+      ? {
+          jobId: job.id,
+          createdAt: job.createdAt,
+          modelId: job.quote.modelId,
+          provider: job.quote.providerAddress,
+          verifiability: job.quote.verifiability,
+          catalogHash: job.quote.catalogHash,
+          quoteHash: job.quote.quoteHash,
+          lock0g: format0g(job.quote.lock0g),
+          teeChatId: job.tee?.chatId ?? null,
+          recoveredSigner: job.tee?.recoveredSigner ?? null,
+          expectedSigner: job.tee?.expectedSigner ?? null,
+          storageRoot: job.storageRoot ?? null,
+          resultSha256: job.resultText ? sha256Utf8(job.resultText) : null,
+          txs: {
+            lock: job.lockTx ? explorerTx(job.lockTx) : null,
+            release: job.releaseTx ? explorerTx(job.releaseTx) : null,
+            refund: job.refundTx ? explorerTx(job.refundTx) : null,
+            receipt: job.receiptTx ? explorerTx(job.receiptTx) : null,
+            feedback: job.feedbackTx ? explorerTx(job.feedbackTx) : null,
+          },
+        }
+      : null,
+    related,
     note: job ? null : "Job not in this API memory. On-chain receipt is authoritative if recorded.",
   };
 });
@@ -1890,6 +1963,18 @@ registerMcpRoutes(app, {
     if (!history) return;
     await history.recordActivity(getAddress(wallet), kind, title, meta, explorerUrl, refId);
   },
+  spendReport: async (wallet) => {
+    const { report, windows, vault } = await spendReportForWallet(wallet);
+    return {
+      report,
+      windows: {
+        "1d": { lanes: windows["1d"].lanes },
+        "7d": { lanes: windows["7d"].lanes },
+        "30d": { lanes: windows["30d"].lanes },
+      },
+      vault,
+    };
+  },
 });
 
 app.get("/.well-known/agent-card.json", async () => agentRegistrationFile());
@@ -2304,17 +2389,23 @@ app.post("/v1/flow/chat", async (req) => {
       return { reply: "Connect a wallet to read escrow, Safe window, swaps, and gas separately.", cards: [] };
     }
     const swapAsk = /swap/.test(text);
-    const { report } = await spendReportForWallet(body.wallet);
+    const { report, windows } = await spendReportForWallet(body.wallet);
+    const today = windows["1d"];
+    const laneLine = today.lanes.map((l) => `${l.label} ${l.amount0g}`).join(" · ");
     const last = await lastProvenJobForWallet(body.wallet);
-    const laneLine = report.lanes.map((l) => `${l.label} ${l.amount0g}`).join(" · ");
     return {
-      reply: `${swapAsk ? "Zia principal is a slice of the Safe window. " : ""}${laneLine}. ${report.honesty}`,
+      reply: `${swapAsk ? "Zia principal is a slice of the Safe window. " : ""}Today: ${laneLine}. 7d and 30d use recorded jobs, swaps, and gas — not a fake Safe window. ${report.honesty}`,
       cards: [
         {
           type: "spend_breakdown",
           title: "Spend ledgers",
           honesty: report.honesty,
-          lanes: report.lanes,
+          lanes: today.lanes,
+          windows: {
+            "1d": { lanes: windows["1d"].lanes },
+            "7d": { lanes: windows["7d"].lanes },
+            "30d": { lanes: windows["30d"].lanes },
+          },
         },
         ...(last
           ? [
@@ -2446,9 +2537,13 @@ app.post("/v1/flow/chat", async (req) => {
     const lastLine = last
       ? `Last job ${last.quote.modelId} locked ${format0g(last.quote.lock0g)} (${last.task}).`
       : "No previous job on file.";
+    const savingsWei = cheaperSavingsWei(
+      last ? { lock0g: last.quote.lock0g, task: last.task } : null,
+      quote.lock0g,
+    );
     const cheaperThanLast =
-      last && last.task !== "image" && quote.lock0g < last.quote.lock0g
-        ? `This lock is lower than the last chat job.`
+      last && savingsWei > 0n
+        ? `This lock is ${format0g(savingsWei)} lower than the last chat job (${format0g(last.quote.lock0g)} → ${format0g(quote.lock0g)}).`
         : last?.task === "image"
           ? `Image stays on ${image.modelId} at ${format0g(image.lock0g)}; cheaper applies to chat/research.`
           : `Live cheapest verified chat: ${quote.modelId}.`;
@@ -2467,7 +2562,8 @@ app.post("/v1/flow/chat", async (req) => {
           type: "quote",
           unit: "0G",
           title: "Cheap catalog quote",
-          summary: `${quote.modelId} · ${quote.verifiability} · ${format0g(quote.lock0g)}`,
+          summary: `${quote.modelId} · ${quote.verifiability} · ${format0g(quote.lock0g)}${savingsWei > 0n ? ` · saves ${format0g(savingsWei)}` : ""}`,
+          savings0g: savingsWei > 0n ? format0g(savingsWei) : null,
         },
         ...jobStayCards(job, "Start cheaper job", "Escrow native 0G then run Compute. Stay in this chat."),
       ],
@@ -2598,6 +2694,7 @@ async function spendReportForWallet(wallet: string) {
       lockTx: job.lockTx ?? null,
       releaseTx: job.releaseTx ?? null,
       refundTx: job.refundTx ?? null,
+      createdAt: job.createdAt,
     });
   }
   let activity: SpendActivity[] = [];
@@ -2610,16 +2707,22 @@ async function spendReportForWallet(wallet: string) {
         ref_id: (r as { ref_id?: string | null }).ref_id ?? null,
         explorer_url: (r as { explorer_url?: string | null }).explorer_url ?? null,
         meta: ((r as { meta?: Record<string, unknown> | null }).meta ?? null) as Record<string, unknown> | null,
+        createdAt: spendTimestamp(
+          (r as { created_at?: unknown }).created_at ?? (r as { createdAt?: unknown }).createdAt,
+        ),
       }));
     } catch {
       activity = [];
     }
   }
+  const gasByHash: Record<string, bigint> = {};
   let gasWei = 0n;
   for (const h of collectSpendHashes(spendJobs, activity)) {
     try {
       const rec = await provider.getTransactionReceipt(h);
-      gasWei += receiptGasWei(rec);
+      const wei = receiptGasWei(rec);
+      gasByHash[h.toLowerCase()] = wei;
+      gasWei += wei;
     } catch {
       /* missing receipt is not a spend */
     }
@@ -2637,8 +2740,11 @@ async function spendReportForWallet(wallet: string) {
       windowBudget: format0g(budget as bigint),
     };
   }
+  const report = composeSpendReport({ jobs: spendJobs, windowSpent, activity, gasWei });
+  const windows = composeSpendWindows({ jobs: spendJobs, activity, windowSpent, gasByHash });
   return {
-    report: composeSpendReport({ jobs: spendJobs, windowSpent, activity, gasWei }),
+    report,
+    windows,
     jobs: spendJobs,
     vault,
   };
@@ -2652,7 +2758,7 @@ function requireHistory() {
 app.get("/v1/flow/spend", async (req) => {
   const wallet = String((req.query as { wallet?: string }).wallet ?? "");
   if (!wallet) return { ok: true, jobs: [], vault: null, lanes: [], honesty: "Connect a wallet." };
-  const { report, jobs: spendJobs, vault } = await spendReportForWallet(wallet);
+  const { report, windows, jobs: spendJobs, vault } = await spendReportForWallet(wallet);
   return {
     ok: true,
     jobs: spendJobs.map((j) => ({
@@ -2664,7 +2770,12 @@ app.get("/v1/flow/spend", async (req) => {
       refundTx: j.refundTx ?? null,
     })),
     vault,
-    lanes: report.lanes,
+    lanes: windows["1d"].lanes,
+    windows: {
+      "1d": { lanes: windows["1d"].lanes },
+      "7d": { lanes: windows["7d"].lanes },
+      "30d": { lanes: windows["30d"].lanes },
+    },
     honesty: report.honesty,
   };
 });

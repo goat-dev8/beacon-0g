@@ -14,6 +14,57 @@ import { SafeMarkdown } from "@/components/SafeMarkdown";
 import type { CardExecutionState, AgentCard } from "@/lib/executionPhases";
 import type { ConvState, PaidResendMeta } from "@/lib/flowTypes";
 
+type SpendLane = { id: string; label: string; amount0g: string; note: string };
+
+function SpendBreakdownCard({ card }: { card: AgentCard }) {
+  const windows = card.windows as Record<string, { lanes?: SpendLane[] }> | undefined;
+  const fallback = Array.isArray(card.lanes) ? (card.lanes as SpendLane[]) : [];
+  const [win, setWin] = useState<"1d" | "7d" | "30d">("1d");
+  const lanes = windows?.[win]?.lanes ?? fallback;
+  return (
+    <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
+      <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
+        {String(card.title ?? "Spend ledgers")}
+      </p>
+      {windows ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {(
+            [
+              ["1d", "Today"],
+              ["7d", "7d"],
+              ["30d", "30d"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setWin(id)}
+              className={cn(
+                "rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wider",
+                win === id
+                  ? "bg-signal text-ink"
+                  : "border border-[var(--p-border)] text-[var(--p-muted)]",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+        {lanes.map((lane) => (
+          <div key={lane.id} className="rounded-xl bg-[var(--p-surface-2)] px-3 py-2">
+            <p className="font-mono text-[10px] text-[var(--p-muted)]">{lane.label}</p>
+            <p className="font-display text-lg text-[var(--p-fg)]">{lane.amount0g}</p>
+            <p className="mt-1 text-xs text-[var(--p-muted)]">{lane.note}</p>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-xs text-amber-200/90">{String(card.honesty ?? "")}</p>
+    </div>
+  );
+}
+
 function FccHardwareStrip({ card }: { card: AgentCard }) {
   const status = card.teeSignedStatus;
   if (typeof status !== "number") return null;
@@ -634,24 +685,7 @@ export function ActionCard({
   }
 
   if (card.type === "spend_breakdown") {
-    const lanes = Array.isArray(card.lanes) ? (card.lanes as Array<{ id: string; label: string; amount0g: string; note: string }>) : [];
-    return (
-      <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
-        <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">
-          {String(card.title ?? "Spend ledgers")}
-        </p>
-        <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-          {lanes.map((lane) => (
-            <div key={lane.id} className="rounded-xl bg-[var(--p-surface-2)] px-3 py-2">
-              <p className="font-mono text-[10px] text-[var(--p-muted)]">{lane.label}</p>
-              <p className="font-display text-lg text-[var(--p-fg)]">{lane.amount0g}</p>
-              <p className="mt-1 text-xs text-[var(--p-muted)]">{lane.note}</p>
-            </div>
-          ))}
-        </dl>
-        <p className="mt-3 text-xs text-amber-200/90">{String(card.honesty ?? "")}</p>
-      </div>
-    );
+    return <SpendBreakdownCard card={card} />;
   }
 
   if (card.type === "swap_clarify") {
@@ -1290,6 +1324,12 @@ export function ActionCard({
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-surface)] p-4 shadow-[var(--p-shadow)]">
         <p className="font-mono text-[11px] uppercase tracking-widest text-[var(--p-accent-text)]">{card.title}</p>
         {showSummary && <p className="mt-2 text-sm text-[var(--p-muted)]">{summary}</p>}
+        {typeof card.modelId === "string" && card.modelId && (
+          <p className="mt-2 font-mono text-[11px] text-[var(--p-muted)]">
+            {card.modelId}
+            {typeof card.lock0g === "string" ? ` · ${card.lock0g}` : ""}
+          </p>
+        )}
         {typeof card.paymentTxHint === "string" && card.paymentTxHint && (
           <a
             href={explorerTx(card.paymentTxHint, 16661)}
@@ -1372,6 +1412,9 @@ export function ActionCard({
         </p>
         <p className="mt-1 font-medium text-[var(--p-fg)]">{String(card.title ?? "Quote")}</p>
         <p className="mt-1 text-sm text-[var(--p-muted)]">{String(card.summary ?? "")}</p>
+        {typeof card.savings0g === "string" && card.savings0g && (
+          <p className="mt-2 font-mono text-[11px] text-[var(--p-accent-text)]">Saves {card.savings0g} vs last chat job</p>
+        )}
       </div>
     );
   }
