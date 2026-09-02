@@ -34,4 +34,12 @@ describe("classifyExecutionFailure", () => {
     expect(classifyExecutionFailure(new Error("LI.FI status is PENDING")).kind).toBe("bridge_pending");
     expect(classifyExecutionFailure(new Error("Blocked before funds moved.")).kind).toBe("policy_denied");
   });
+
+  it("maps pending wallet requests and stale nonce", () => {
+    expect(classifyExecutionFailure({ code: -32002, message: "Already processing eth_sendTransaction" }).kind).toBe(
+      "request_pending",
+    );
+    expect(classifyExecutionFailure(new Error("nonce too low")).kind).toBe("stale_nonce");
+    expect(classifyExecutionFailure({ code: 4001, message: "ACTION_REJECTED" }).kind).toBe("user_rejected");
+  });
 });

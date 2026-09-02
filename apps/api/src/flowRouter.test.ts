@@ -39,4 +39,19 @@ describe("classifyFlowIntent", () => {
   it("cheap model routing is a JOB", () => {
     expect(classifyFlowIntent("Do this cheaper.").kind).toBe("cheap_model");
   });
+
+  it("live RPC inspect stays INLINE; analyze/explain is a JOB", () => {
+    expect(classifyFlowIntent("Inspect 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E")).toEqual({
+      lane: "inline",
+      kind: "inspect_address",
+    });
+    expect(classifyFlowIntent("Inspect 0x" + "ab".repeat(32)).kind).toBe("inspect_tx");
+    expect(classifyFlowIntent("Analyze this wallet.")).toEqual({
+      lane: "job",
+      kind: "analysis_job",
+    });
+    expect(
+      classifyFlowIntent("Explain 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E from the live evidence."),
+    ).toEqual({ lane: "job", kind: "analysis_job" });
+  });
 });

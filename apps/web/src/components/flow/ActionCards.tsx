@@ -418,11 +418,15 @@ export function ActionCard({
       bytecodeBytes?: number;
       nativeBalanceWei?: string;
       nativeBalance0g?: string;
+      nonce?: number;
       status?: string;
       from?: string;
       to?: string;
       selector?: string;
       gasUsed?: string;
+      blockNumber?: string;
+      nativeValue0g?: string;
+      inputBytes?: number;
       logs?: number;
       implementation?: string | null;
       risks?: string[];
@@ -431,6 +435,7 @@ export function ActionCard({
       transfers?: Array<{ token?: string; symbol?: string; from?: string; to?: string; display?: string; value?: string }>;
       tokenBalances?: Array<{ symbol: string; balance: string }>;
       owner?: string | null;
+      interfaceIds?: string[];
     };
     return (
       <div className="rounded-2xl border border-[var(--p-border)] bg-[var(--p-card)] p-4">
@@ -449,6 +454,9 @@ export function ActionCard({
         {inspect.nativeBalance0g ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-fg)]">Native {inspect.nativeBalance0g} 0G</p>
         ) : null}
+        {inspect.nonce != null ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Nonce {inspect.nonce}</p>
+        ) : null}
         {inspect.token?.symbol ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-fg)]">
             Token {inspect.token.symbol}
@@ -464,6 +472,15 @@ export function ActionCard({
         ) : null}
         {inspect.gasUsed ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Gas used {inspect.gasUsed}</p>
+        ) : null}
+        {inspect.blockNumber ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Block {inspect.blockNumber}</p>
+        ) : null}
+        {inspect.nativeValue0g ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Value {inspect.nativeValue0g} 0G</p>
+        ) : null}
+        {inspect.inputBytes != null ? (
+          <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Input {inspect.inputBytes} bytes</p>
         ) : null}
         {inspect.logs != null ? (
           <p className="mt-1 font-mono text-xs text-[var(--p-muted)]">Logs {inspect.logs}</p>
@@ -500,6 +517,11 @@ export function ActionCard({
             implementation {inspect.implementation}
           </p>
         ) : null}
+        {(inspect.interfaceIds ?? []).map((id) => (
+          <p key={id} className="mt-1 font-mono text-xs text-[var(--p-muted)]">
+            supportsInterface {id}
+          </p>
+        ))}
         {inspect.explorer ? (
           <a
             href={inspect.explorer}
@@ -510,6 +532,19 @@ export function ActionCard({
             Open in Explorer
           </a>
         ) : null}
+        {(inspect.address || inspect.hash) && (
+          <button
+            type="button"
+            className="ml-3 mt-3 rounded-full border border-[var(--p-border)] px-3 py-1 text-xs"
+            onClick={() =>
+              onQuickReply(
+                `Explain ${inspect.address ?? inspect.hash} from the live evidence.`,
+              )
+            }
+          >
+            Explain with TeeML
+          </button>
+        )}
       </div>
     );
   }

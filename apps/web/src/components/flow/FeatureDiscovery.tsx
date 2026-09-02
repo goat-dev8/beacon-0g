@@ -49,7 +49,7 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
   {
     id: "inspect",
     title: "Inspect",
-    blurb: "Live Aristotle RPC for a contract or tx. No invented ABI. Optional paid TeeML explanation.",
+    blurb: "Live Aristotle RPC in this chat. No invented ABI. Explain with TeeML is a separate quoted job.",
     prompt: "Inspect 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E",
     icon: Crosshair,
     accent: true,

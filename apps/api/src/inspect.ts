@@ -12,6 +12,15 @@ const ERC20 = new Interface([
   "function implementation() view returns (address)",
 ]);
 
+const ERC165 = new Interface(["function supportsInterface(bytes4 interfaceId) view returns (bool)"]);
+
+/** Standard interface ids. Live eth_call only — not an invented ABI. */
+const INTERFACE_IDS: Array<{ id: string; hex: `0x${string}` }> = [
+  { id: "ERC-165", hex: "0x01ffc9a7" },
+  { id: "ERC-20", hex: "0x36372b07" },
+  { id: "ERC-721", hex: "0x80ac58cd" },
+];
+
 const SELECTORS: Array<{ id: string; hex: string }> = [
   { id: "erc20.balanceOf", hex: "70a08231" },
   { id: "erc20.transfer", hex: "a9059cbb" },
@@ -31,11 +40,13 @@ export type AddressInspect = {
   isContract: boolean;
   nativeBalanceWei: string;
   nativeBalance0g: string;
+  nonce?: number;
   token?: { name?: string; symbol?: string; decimals?: number; totalSupply?: string };
   tokenBalances?: Array<{ symbol: string; address: string; balance: string }>;
   owner?: string | null;
   implementation?: string | null;
   selectorsPresent: string[];
+  interfaceIds?: string[];
   verifiedSource: false;
   verifiedNote: string;
   risks: string[];
@@ -49,7 +60,10 @@ export type TxInspect = {
   from?: string;
   to?: string | null;
   nativeValueWei?: string;
+  nativeValue0g?: string;
   gasUsed?: string;
+  blockNumber?: string;
+  inputBytes?: number;
   selector?: string | null;
   logs?: number;
   transfers?: Array<{
@@ -71,7 +85,13 @@ function explorerTx(hash: string) {
 
 export async function inspectAddress(provider: Provider, raw: string): Promise<AddressInspect> {
   const address = getAddress(raw.toLowerCase());
-  const [code, balance] = await Promise.all([provider.getCode(address), provider.getBalance(address)]);
+  const [code, balance, nonce] = await Promise.all([
+    provider.getCode(address),
+    provider.getBalance(address),
+    typeof provider.getTransactionCount === "function"
+      ? provider.getTransactionCount(address).catch(() => undefined)
+      : Promise.resolve(undefined),
+  ]);
   const bytecodeBytes = code && code !== "0x" ? (code.length - 2) / 2 : 0;
   const isContract = bytecodeBytes > 0;
   const lowered = (code || "").toLowerCase();
@@ -128,6 +148,23 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
     }
   }
 
+  const interfaceIds: string[] = [];
+  if (isContract && selectorsPresent.includes("erc165.supportsInterface")) {
+    for (const iface of INTERFACE_IDS) {
+      try {
+        const raw = await provider.call({
+          to: address,
+          data: ERC165.encodeFunctionData("supportsInterface", [iface.hex]),
+        });
+        if (Boolean(ERC165.decodeFunctionResult("supportsInterface", raw)[0])) {
+          interfaceIds.push(`${iface.id} ${iface.hex}`);
+        }
+      } catch {
+        /* revert is not a yes */
+      }
+    }
+  }
+
   let owner: string | null = null;
   let implementation: string | null = null;
   if (isContract && selectorsPresent.includes("ownable.owner")) {
@@ -179,11 +216,13 @@ export async function inspectAddress(provider: Provider, raw: string): Promise<A
     isContract,
     nativeBalanceWei: balance.toString(),
     nativeBalance0g: formatEther(balance),
+    nonce: typeof nonce === "number" ? nonce : nonce != null ? Number(nonce) : undefined,
     token,
     tokenBalances,
     owner,
     implementation,
     selectorsPresent,
+    interfaceIds,
     verifiedSource: false,
     verifiedNote: "Beacon does not invent ABIs. Verified source was not fetched; treat selector hints as incomplete.",
     risks,
@@ -208,7 +247,9 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
       from: tx.from,
       to: tx.to,
       nativeValueWei: tx.value.toString(),
+      nativeValue0g: formatEther(tx.value),
       selector: tx.data && tx.data.length >= 10 ? tx.data.slice(0, 10) : null,
+      inputBytes: tx.data ? (tx.data.length - 2) / 2 : 0,
     };
   }
   const status = receipt?.status === 1 ? "success" : "reverted";
@@ -245,7 +286,10 @@ export async function inspectTransaction(provider: Provider, hash: string): Prom
     from: receipt?.from ?? tx?.from,
     to: receipt?.to ?? tx?.to ?? null,
     nativeValueWei: tx?.value?.toString(),
+    nativeValue0g: tx?.value != null ? formatEther(tx.value) : undefined,
     gasUsed: receipt?.gasUsed?.toString(),
+    blockNumber: receipt?.blockNumber != null ? receipt.blockNumber.toString() : undefined,
+    inputBytes: tx?.data ? (tx.data.length - 2) / 2 : undefined,
     selector: tx?.data && tx.data.length >= 10 ? tx.data.slice(0, 10) : null,
     logs: receipt?.logs.length ?? 0,
     transfers,

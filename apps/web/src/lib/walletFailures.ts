@@ -12,6 +12,8 @@ export type ExecutionFailureKind =
   | "storage_failed"
   | "thin_book"
   | "bridge_pending"
+  | "request_pending"
+  | "stale_nonce"
   | "unknown";
 
 export function classifyExecutionFailure(err: unknown): { kind: ExecutionFailureKind; message: string } {
@@ -25,8 +27,20 @@ export function classifyExecutionFailure(err: unknown): { kind: ExecutionFailure
         : String(err ?? "Request failed.");
   const text = raw.toLowerCase();
 
-  if (code === 4001 || /user rejected|rejected the request|denied transaction signature/.test(text)) {
+  if (code === 4001 || /user rejected|rejected the request|denied transaction signature|action_rejected/.test(text)) {
     return { kind: "user_rejected", message: "Wallet rejected the signature. Nothing moved on Aristotle." };
+  }
+  if (code === -32002 || /already pending|request already pending|already processing/.test(text)) {
+    return {
+      kind: "request_pending",
+      message: "Wallet already has a request open. Finish or reject it, then retry. Nothing new moved.",
+    };
+  }
+  if (/nonce too low|nonce has already been used|replacement transaction underpriced/.test(text)) {
+    return {
+      kind: "stale_nonce",
+      message: "Wallet nonce is stale. Wait for the pending tx or speed it up. Beacon will not invent a success.",
+    };
   }
   if (
     code === 4902 ||

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { explorerAddress, explorerTx, storageScan } from "@/lib/explorers";
 import { apiBase } from "@/lib/publicEnv";
 import { proofOutcome } from "@/lib/verifyProof";
+import { compareReceipts, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
 
 type OnchainReceipt = {
   storageRoot?: string;
@@ -47,6 +48,8 @@ const DANGER = "#ff6b6b";
 export function VerifyPage() {
   const { jobId } = useParams();
   const [data, setData] = useState<VerifyPayload | null>(null);
+  const [browser, setBrowser] = useState<BrowserReceipt | null>(null);
+  const [rpcErr, setRpcErr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -60,10 +63,28 @@ export function VerifyPage() {
       })
       .then(setData)
       .catch((e: unknown) => setErr(e instanceof Error ? e.message : "verify failed"));
+    readReceiptFromRpc(jobId)
+      .then((row) => {
+        setBrowser(row);
+        setRpcErr(null);
+      })
+      .catch((e: unknown) => setRpcErr(e instanceof Error ? e.message : "browser eth_call failed"));
   }, [jobId]);
 
   const job = data?.job;
-  const onchain = data?.onchain ?? null;
+  const onchain = browser?.exists
+    ? {
+        storageRoot: browser.storageRoot,
+        teeSigner: browser.teeSigner,
+        chatIdHash: browser.chatIdHash,
+        quoteHash: browser.quoteHash,
+        allowed: browser.allowed,
+        exists: true,
+        recordedAt: browser.recordedAt,
+        recorder: browser.recorder,
+      }
+    : (data?.onchain ?? null);
+  const compare = browser ? compareReceipts(data?.onchain ?? null, browser) : null;
   const storageRoot = onchain?.storageRoot || job?.storageRoot || null;
   const storageHref = storageRoot ? storageScan(storageRoot) : null;
   const outcome = proofOutcome(job, onchain);
@@ -91,6 +112,8 @@ export function VerifyPage() {
       jobId: job?.id ?? jobId,
       status: outcome.label,
       onchain,
+      independentRpc: browser,
+      compare,
       lockTx: job?.lockTx,
       releaseTx: job?.releaseTx,
       refundTx: job?.refundTx,
@@ -171,6 +194,22 @@ export function VerifyPage() {
                   release / refund.
                 </p>
               )}
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Independent RPC
+              </p>
+              <p className="mt-2 text-sm" style={{ color: compare?.match === false ? DANGER : MUTED }}>
+                {rpcErr
+                  ? `Browser eth_call failed: ${rpcErr}. API fields alone are not a pass.`
+                  : compare?.note ?? "Calling evmrpc.0g.ai from this page…"}
+              </p>
+              {browser?.jobKey ? (
+                <p className="mt-2 break-all font-mono text-[11px]" style={{ color: FAINT }}>
+                  receipts({browser.jobKey})
+                </p>
+              ) : null}
             </section>
 
             <section>

@@ -51,6 +51,12 @@ export function parseSwapPrincipal(title: string, meta?: Record<string, unknown>
   }
 }
 
+export function pickProvenJob<T extends { lockTx?: string | null; releaseTx?: string | null; refundTx?: string | null }>(
+  jobs: T[],
+): T | undefined {
+  return jobs.find((j) => Boolean(j.lockTx || j.releaseTx || j.refundTx));
+}
+
 export function collectSpendHashes(jobs: SpendJob[], activity: SpendActivity[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];

@@ -7,11 +7,13 @@ describe("inspectAddress", () => {
       {
         getCode: async () => "0x",
         getBalance: async () => 10n ** 18n,
+        getTransactionCount: async () => 12,
       } as never,
       "0x18398aa1dfda63f30529c46e90ac41c1e75f7ecf",
     );
     expect(out.isContract).toBe(false);
     expect(out.bytecodeBytes).toBe(0);
+    expect(out.nonce).toBe(12);
     expect(out.risks[0]).toMatch(/EOA/);
     expect(out.verifiedSource).toBe(false);
   });
@@ -64,6 +66,7 @@ describe("inspectTransaction", () => {
           from: "0x18398aA1dFdA63F30529c46E90ac41c1E75F7Ecf",
           to: "0x18cCa38E51c4C339A6BD6e174025f08360FEEf30",
           gasUsed: 120000n,
+          blockNumber: 1234567n,
           logs: [
             {
               address: token,
@@ -81,6 +84,7 @@ describe("inspectTransaction", () => {
     );
     expect(out.status).toBe("success");
     expect(out.gasUsed).toBe("120000");
+    expect(out.blockNumber).toBe("1234567");
     expect(out.transfers?.[0]?.symbol).toBe("USDC.e");
     expect(out.transfers?.[0]?.display).toMatch(/USDC\.e/);
     expect(out.verifiedSource).toBeUndefined();

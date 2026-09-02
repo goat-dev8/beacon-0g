@@ -4,6 +4,7 @@ import {
   collectSpendHashes,
   composeSpendReport,
   parseSwapPrincipal,
+  pickProvenJob,
   receiptGasWei,
 } from "./spendAnalytics.js";
 
@@ -39,6 +40,13 @@ describe("spend analytics", () => {
   it("reads gas from a live-shaped receipt", () => {
     expect(receiptGasWei({ gasUsed: 100_000n, effectiveGasPrice: 4_000_000_000n })).toBe(400_000_000_000_000n);
     expect(receiptGasWei(null)).toBe(0n);
+  });
+
+  it("picks a proven job over a leftover quote", () => {
+    const quoted = { id: "q", status: "QUOTED", lock0g: 1n };
+    const locked = { id: "l", status: "CLOSED", lock0g: 1n, lockTx: "0x" + "aa".repeat(32) };
+    expect(pickProvenJob([quoted, locked])?.id).toBe("l");
+    expect(pickProvenJob([quoted])).toBeUndefined();
   });
 
   it("dedupes hashes from jobs and activity", () => {

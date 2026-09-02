@@ -28,6 +28,13 @@ export type FlowClassification = {
 const TX_HASH = /0x[a-fA-F0-9]{64}/;
 const ADDR = /0x[a-fA-F0-9]{40}(?![a-fA-F0-9])/;
 
+/** Paid TeeML explanation — not a live RPC inspect. */
+export function wantsPaidExplanation(raw: string): boolean {
+  return /\bexplain\b|\banalyze\b|paid (explanation|interpretation)|deep (read|dive)/.test(
+    raw.toLowerCase(),
+  );
+}
+
 /**
  * Typed Flow router. Lightweight reads stay INLINE. Heavy work is JOB.
  * Swaps/bridges that need a signature are TRANSACTION. Unconstrained sends DENY.
@@ -60,13 +67,15 @@ export function classifyFlowIntent(raw: string): FlowClassification {
     return { lane: "inline", kind: "erc8004" };
   }
   if (TX_HASH.test(raw) && /inspect|analyze|explain|transaction|\btx\b/.test(text)) {
-    return { lane: "job", kind: "inspect_tx" };
+    if (wantsPaidExplanation(raw)) return { lane: "job", kind: "analysis_job" };
+    return { lane: "inline", kind: "inspect_tx" };
   }
   if (
     (ADDR.test(raw) || /analyze this wallet|inspect my (wallet|safe)|analyze my (wallet|safe)|inspect this wallet/.test(text)) &&
     /inspect|analyze|explain|contract|wallet|address/.test(text)
   ) {
-    return { lane: "job", kind: "analysis_job" };
+    if (wantsPaidExplanation(raw)) return { lane: "job", kind: "analysis_job" };
+    return { lane: "inline", kind: "inspect_address" };
   }
   if (/safe balance|how much .*(safe|wealth)|what('?s| is) (in )?my safe|policy window/.test(text)) {
     return { lane: "inline", kind: "balance" };

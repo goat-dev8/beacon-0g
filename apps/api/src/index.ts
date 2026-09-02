@@ -37,11 +37,12 @@ import { historyMeta } from "./historyMeta.js";
 import { encodeGiveFeedback, probeErc8004 } from "./erc8004.js";
 import { registerMcpRoutes } from "./mcpRoutes.js";
 import { waitForMinedReceipt, type ReceiptLike } from "./waitTx.js";
-import { classifyFlowIntent } from "./flowRouter.js";
+import { classifyFlowIntent, wantsPaidExplanation } from "./flowRouter.js";
 import { parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
 import {
   collectSpendHashes,
   composeSpendReport,
+  pickProvenJob,
   receiptGasWei,
   type SpendActivity,
   type SpendJob,
@@ -200,6 +201,35 @@ async function lastJobForWallet(wallet?: string): Promise<StoredJob | undefined>
   if (!jobRedis) return undefined;
   const id = await getLastJobId(jobRedis, addr);
   return id ? getJob(id) : undefined;
+}
+
+async function lastProvenJobForWallet(wallet?: string): Promise<StoredJob | undefined> {
+  if (!wallet) return undefined;
+  let addr: string;
+  try {
+    addr = getAddress(wallet);
+  } catch {
+    return undefined;
+  }
+  const mem = pickProvenJob(
+    [...jobs.values()]
+      .filter((j) => {
+        try {
+          return Boolean(j.wallet) && getAddress(j.wallet) === addr;
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+  );
+  if (mem) return mem;
+  if (!jobRedis) return undefined;
+  const ids = await listWalletJobIds(jobRedis, addr);
+  for (const id of ids) {
+    const job = await getJob(id);
+    if (job && pickProvenJob([job])) return job;
+  }
+  return undefined;
 }
 
 async function getJob(id: string): Promise<StoredJob | undefined> {
@@ -1751,7 +1781,7 @@ app.post("/v1/flow/chat", async (req) => {
     };
   }
   if (/verify/.test(text) && /last|proof|receipt|result/.test(text)) {
-    const last = await lastJobForWallet(body.wallet);
+    const last = (await lastProvenJobForWallet(body.wallet)) ?? (await lastJobForWallet(body.wallet));
     if (!last) {
       return {
         reply: "No job is on file for this wallet yet. Run an image or research job first.",
@@ -1881,6 +1911,13 @@ app.post("/v1/flow/chat", async (req) => {
       : undefined);
   if (txHash && /inspect|analyze|explain|transaction|\btx\b/.test(text)) {
     const info = await inspectTransaction(provider, txHash);
+    const paid = classified.kind === "analysis_job" || wantsPaidExplanation(body.text);
+    if (!paid) {
+      return {
+        reply: `Transaction ${info.status} on Aristotle. Evidence is from live RPC. Ask to explain it for a quoted TeeML job — inspect itself does not lock 0G.`,
+        cards: [{ type: "inspect_result", title: "Transaction", inspect: info }],
+      };
+    }
     const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
     const brief = `Explain this Aristotle transaction from evidence only.\n${JSON.stringify(info)}`;
     const quote = quoteJob(catalog, { task: "cheap", briefText: brief });
@@ -1903,6 +1940,15 @@ app.post("/v1/flow/chat", async (req) => {
   }
   if (addressTarget && /inspect|analyze|explain|contract|wallet|address/.test(text)) {
     const info = await inspectAddress(provider, addressTarget);
+    const paid = classified.kind === "analysis_job" || wantsPaidExplanation(body.text);
+    if (!paid) {
+      return {
+        reply: info.isContract
+          ? `Contract ${info.address}. ${info.bytecodeBytes} bytecode bytes. Source is not verified in Beacon. ${info.risks[0] ?? ""} Inspect is live RPC — ask to explain it to quote a TeeML job.`
+          : `Wallet ${info.address}. Native 0G from live RPC. Inspect does not lock 0G. Beacon does not claim complete token history.`,
+        cards: [{ type: "inspect_result", title: info.isContract ? "Contract" : "Wallet", inspect: info }],
+      };
+    }
     const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
     const brief = `Explain this Aristotle ${info.isContract ? "contract" : "wallet"} from evidence only. Do not invent ABI.\n${JSON.stringify(info)}`;
     const quote = quoteJob(catalog, { task: "cheap", briefText: brief });
@@ -1934,7 +1980,7 @@ app.post("/v1/flow/chat", async (req) => {
     }
     const swapAsk = /swap/.test(text);
     const { report } = await spendReportForWallet(body.wallet);
-    const last = await lastJobForWallet(body.wallet);
+    const last = await lastProvenJobForWallet(body.wallet);
     const laneLine = report.lanes.map((l) => `${l.label} ${l.amount0g}`).join(" · ");
     return {
       reply: `${swapAsk ? "Zia principal is a slice of the Safe window. " : ""}${laneLine}. ${report.honesty}`,
