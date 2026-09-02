@@ -266,6 +266,12 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
   });
 
   useEffect(() => {
+    if (!jobQuery.isError) return;
+    const err = jobQuery.error;
+    setError(err instanceof ApiError ? err.message : "We couldn't find that job. Request a new quote from Flow.");
+  }, [jobQuery.isError, jobQuery.error]);
+
+  useEffect(() => {
     const data = jobQuery.data;
     const job = data?.job;
     if (!job) return;

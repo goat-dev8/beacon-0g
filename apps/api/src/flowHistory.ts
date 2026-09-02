@@ -92,12 +92,14 @@ async function tryPostgres(env: BeaconEnv): Promise<FlowHistory | null> {
   }
 }
 
-async function tryRedis(env: BeaconEnv): Promise<FlowHistory | null> {
+export function redisClientFromEnv(env: BeaconEnv): RedisRest | null {
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) return null;
-  const client: RedisRest = {
-    url: env.UPSTASH_REDIS_REST_URL,
-    token: env.UPSTASH_REDIS_REST_TOKEN,
-  };
+  return { url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN };
+}
+
+async function tryRedis(env: BeaconEnv): Promise<FlowHistory | null> {
+  const client = redisClientFromEnv(env);
+  if (!client) return null;
   try {
     const ok = await redisStore.pingRedis(client);
     return ok ? wrapRedis(client) : null;

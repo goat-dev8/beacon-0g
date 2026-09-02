@@ -28,7 +28,8 @@ import {
   verifySafeSessionToken,
 } from "./safeSession.js";
 import { serviceIdToTask, webJobRow, webQuoteDto, ZEROG_SERVICES } from "./jobDesk.js";
-import { openFlowHistory } from "./flowHistory.js";
+import { openFlowHistory, redisClientFromEnv } from "./flowHistory.js";
+import { getDurableJob, getDurableQuote, putDurableJob } from "./jobPersist.js";
 
 const env = loadEnv();
 assertZeroGRequired(process.env, env);
@@ -128,6 +129,47 @@ type StoredJob = {
 
 const jobs = new Map<string, StoredJob>();
 const quotes = new Map<string, JobQuote>();
+const jobRedis = redisClientFromEnv(env);
+
+async function persistJob(job: StoredJob): Promise<void> {
+  jobs.set(job.id, job);
+  quotes.set(job.quote.quoteId, job.quote);
+  if (!jobRedis) return;
+  try {
+    await putDurableJob(jobRedis, job);
+  } catch {
+    /* Redis must not take down the request; GET hydrates on the next process. */
+  }
+}
+
+async function getJob(id: string): Promise<StoredJob | undefined> {
+  const mem = jobs.get(id);
+  if (mem) return mem;
+  if (!jobRedis) return undefined;
+  try {
+    const stored = await getDurableJob<StoredJob>(jobRedis, id);
+    if (!stored) return undefined;
+    stored.events = stored.events ?? [];
+    jobs.set(stored.id, stored);
+    quotes.set(stored.quote.quoteId, stored.quote);
+    return stored;
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadQuote(quoteId: string): Promise<JobQuote | undefined> {
+  const mem = quotes.get(quoteId);
+  if (mem) return mem;
+  if (!jobRedis) return undefined;
+  try {
+    const stored = await getDurableQuote(jobRedis, quoteId);
+    if (stored) quotes.set(quoteId, stored);
+    return stored ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function explorerTx(hash: string): string {
   return `${env.ZEROG_EXPLORER.replace(/\/$/, "")}/tx/${hash}`;
@@ -194,6 +236,7 @@ function serializeJob(job: StoredJob) {
 
 function emitEvent(job: StoredJob, type: string, payload: unknown) {
   job.events.push({ type, payload, ts: new Date().toISOString() });
+  void persistJob(job);
 }
 
 function deskView(job: StoredJob) {
@@ -233,7 +276,7 @@ async function createQuotedJob(input: {
   }
   const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
   const quote =
-    (input.quoteId ? quotes.get(input.quoteId) : undefined) ??
+    (input.quoteId ? await loadQuote(input.quoteId) : undefined) ??
     quoteJob(catalog, {
       task: input.task,
       briefText: input.brief,
@@ -254,7 +297,7 @@ async function createQuotedJob(input: {
     events: [],
   };
   emitEvent(job, "quoted", { model: quote.modelId, lock0g: format0g(quote.lock0g) });
-  jobs.set(job.id, job);
+  await persistJob(job);
   return job;
 }
 
@@ -284,6 +327,7 @@ app.get("/health", async () => ({
   asset: "native 0G",
   history: historyReady,
   historyKind: history?.kind ?? "none",
+  jobs: Boolean(jobRedis),
 }));
 
 app.get("/ready", async () => ({
@@ -295,6 +339,7 @@ app.get("/ready", async () => ({
   settler: Boolean(settler),
   history: historyReady,
   historyKind: history?.kind ?? "none",
+  jobs: Boolean(jobRedis),
 }));
 
 app.get("/v1/models", async () => {
@@ -365,21 +410,21 @@ app.post("/v1/jobs", async (req) => {
 
 app.get("/v1/jobs/:id", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   return deskView(job);
 });
 
 app.post("/v1/jobs/:id/quote", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   return { jobId: job.id, quote: webQuoteDto(job.quote), offerId: job.quote.quoteId };
 });
 
 app.post("/v1/jobs/:id/approve", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   const body = z
     .object({
@@ -403,6 +448,7 @@ app.post("/v1/jobs/:id/approve", async (req) => {
   job.payMode = "wallet";
   job.status = JobStatus.AUTHORIZED;
   emitEvent(job, "locked", { tx: lockTx, mode: "wallet" });
+  await persistJob(job);
   void pipelineAfterLock(job);
   return {
     jobId: job.id,
@@ -416,7 +462,7 @@ app.post("/v1/jobs/:id/approve", async (req) => {
 
 app.post("/v1/jobs/:id/approve-safe", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   const auth = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const body = z
@@ -457,6 +503,7 @@ app.post("/v1/jobs/:id/approve-safe", async (req) => {
   job.payMode = "safe";
   job.status = JobStatus.AUTHORIZED;
   emitEvent(job, "locked", { tx: tx.hash, mode: "safe", vault: safe });
+  await persistJob(job);
   void pipelineAfterLock(job);
   return {
     jobId: job.id,
@@ -473,7 +520,7 @@ app.post("/v1/jobs/:id/approve-safe", async (req) => {
 
 app.get("/v1/jobs/:id/events", async (req, reply) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   reply.hijack();
   reply.raw.writeHead(200, {
@@ -512,7 +559,7 @@ app.get("/v1/jobs/:id/events", async (req, reply) => {
 
 app.get("/v1/jobs/:id/artifacts", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   const artifacts = [];
   if (job.imageB64) {
@@ -538,7 +585,7 @@ app.get("/v1/jobs/:id/artifacts", async (req) => {
 app.get("/v1/jobs/:id/artifacts/:artifactId", async (req) => {
   const id = (req.params as { id: string }).id;
   const artifactId = (req.params as { artifactId: string }).artifactId;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   if (artifactId === "image" && job.imageB64) {
     return {
@@ -562,7 +609,7 @@ app.get("/v1/jobs/:id/artifacts/:artifactId", async (req) => {
 
 app.get("/v1/jobs/:id/receipt", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   return {
     jobId: job.id,
@@ -580,14 +627,14 @@ app.get("/v1/jobs/:id/receipt", async (req) => {
 
 app.post("/v1/jobs/:id/look", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   return { jobId: job.id, status: job.status };
 });
 
 app.post("/v1/jobs/:id/review", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   const broker = await requireBroker();
   const tee = await reviewIntent(
@@ -612,7 +659,7 @@ app.post("/v1/jobs/:id/review", async (req) => {
 
 app.post("/v1/jobs/:id/lock", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   if (job.tee && !job.tee.allow) {
     throw new AppError("TEE_DENIED", { message: job.tee.reason });
@@ -742,6 +789,7 @@ async function releasePassedJob(job: StoredJob): Promise<ReturnType<typeof deskV
 async function pipelineAfterLock(job: StoredJob): Promise<void> {
   if (job.pipelineStarted) return;
   job.pipelineStarted = true;
+  await persistJob(job);
   try {
     if (!job.tee) {
       const broker = await requireBroker();
@@ -795,12 +843,14 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
     } catch {
       /* refund best-effort */
     }
+  } finally {
+    await persistJob(job);
   }
 }
 
 app.post("/v1/jobs/:id/run", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   await runLockedJob(job);
   return deskView(job);
@@ -808,7 +858,7 @@ app.post("/v1/jobs/:id/run", async (req) => {
 
 app.post("/v1/jobs/:id/refund", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   if (!settler) throw new AppError("NOT_READY", { message: "Settler key is not configured." });
   const escrow = await requireEscrow();
@@ -825,14 +875,14 @@ app.post("/v1/jobs/:id/refund", async (req) => {
 
 app.post("/v1/jobs/:id/release", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   return releasePassedJob(job);
 });
 
 app.get("/v1/verify/:id", async (req) => {
   const id = (req.params as { id: string }).id;
-  const job = jobs.get(id);
+  const job = await getJob(id);
   let onchain: unknown = null;
   if (env.BEACON_RECEIPT_REGISTRY) {
     const contract = { address: env.BEACON_RECEIPT_REGISTRY };
