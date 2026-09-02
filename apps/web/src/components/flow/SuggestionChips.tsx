@@ -27,6 +27,7 @@ export const FLOW_FEATURES: FlowFeature[] = [
   { id: "image", label: "Image", prompt: "Generate a lighthouse image and save the proof.", icon: Sparkles },
   { id: "swap", label: "Swap", prompt: "Swap 0.2 0G to USDC.e", icon: ArrowLeftRight },
   { id: "reverse", label: "Reverse", prompt: "Swap 0.001 USDC.e to 0G", icon: ArrowLeftRight },
+  { id: "book", label: "Swap book", prompt: "What can I swap?", icon: ArrowLeftRight },
   { id: "inspect", label: "Inspect", prompt: "Inspect 0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E", icon: Boxes },
   { id: "thin", label: "Thin book", prompt: "Swap 0.01 0G to WBTC", icon: ArrowLeftRight },
   { id: "inspecttx", label: "Inspect tx", prompt: "Inspect 0x5f056d0d5c51413450a639fb1e755354b43b13917c1470d4e56ac9fe3a0e9fc9", icon: Boxes },

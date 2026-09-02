@@ -42,6 +42,10 @@ describe("listSwapAssets", () => {
     });
     expect(listed.routes.length).toBeGreaterThan(0);
     expect(listed.routes.every((r) => r.quoted && r.pool)).toBe(true);
+    const forward = listed.routes.find((r) => r.from.symbol === "0G");
+    expect(forward?.amountInDisplay).toBe("0.01 0G");
+    expect(forward?.estimatedOutDisplay).toMatch(/\S/);
+    expect(forward?.executableFromSafe).toBe(true);
   });
 
   it("decodes factory getPool from a 32-byte word without ABI throw", async () => {

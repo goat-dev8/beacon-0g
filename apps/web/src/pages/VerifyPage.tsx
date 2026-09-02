@@ -4,6 +4,7 @@ import { explorerAddress, explorerTx, storageScan } from "@/lib/explorers";
 import { apiBase } from "@/lib/publicEnv";
 import { proofOutcome } from "@/lib/verifyProof";
 import { compareReceipts, compareChatIdHash, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
+import { compareResultHash, resultSha256 } from "@/lib/resultHash";
 
 type OnchainReceipt = {
   storageRoot?: string;
@@ -39,6 +40,8 @@ type VerifyPayload = {
     receiptTx?: string | null;
     storageRoot?: string | null;
     storageScan?: string | null;
+    resultText?: string | null;
+    resultSha256?: string | null;
     denial?: string | null;
   } | null;
   note?: string | null;
@@ -94,6 +97,8 @@ export function VerifyPage() {
     : (data?.onchain ?? null);
   const compare = browser ? compareReceipts(data?.onchain ?? null, browser) : null;
   const chatHash = compareChatIdHash(job?.tee?.chatId, browser?.chatIdHash ?? onchain?.chatIdHash);
+  const localResultHash = job?.resultText ? resultSha256(job.resultText) : null;
+  const resultHash = compareResultHash(localResultHash, job?.resultSha256);
   const storageRoot = onchain?.storageRoot || job?.storageRoot || null;
   const storageHref = storageRoot ? storageScan(storageRoot) : null;
   const outcome = proofOutcome(job, onchain);
@@ -238,6 +243,48 @@ export function VerifyPage() {
                   recovered {job.tee.recoveredSigner}
                   {onchain?.teeSigner ? ` · registry ${onchain.teeSigner}` : ""}
                 </p>
+              ) : null}
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+                Result fingerprint
+              </p>
+              <p className="mt-2 text-sm" style={{ color: resultHash.match === false ? DANGER : MUTED }}>
+                {resultHash.note}
+              </p>
+              {localResultHash ? (
+                <p className="mt-2 break-all font-mono text-[11px]" style={{ color: FAINT }}>
+                  sha256 {localResultHash}
+                </p>
+              ) : null}
+              {job?.resultText ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border px-3 py-1.5 text-sm"
+                    style={{ borderColor: LINE, color: FG }}
+                    onClick={() => void navigator.clipboard.writeText(job.resultText ?? "")}
+                  >
+                    Copy result
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border px-3 py-1.5 text-sm"
+                    style={{ borderColor: LINE, color: FG }}
+                    onClick={() => {
+                      const blob = new Blob([job.resultText ?? ""], { type: "text/markdown" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `beacon-${(job.id ?? "result").slice(0, 8)}.md`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    Download .md
+                  </button>
+                </div>
               ) : null}
             </section>
 

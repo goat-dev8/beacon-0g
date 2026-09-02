@@ -40,6 +40,13 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
     accent: true,
   },
   {
+    id: "book",
+    title: "Swap book",
+    blurb: "Live Zia factory pools with sample quotes. Reverse is quote-only from Safe.",
+    prompt: "What can I swap?",
+    icon: ArrowLeftRight,
+  },
+  {
     id: "thin",
     title: "Thin book",
     blurb: "WBTC is quoted live. Thin verified liquidity is refused before funds move.",

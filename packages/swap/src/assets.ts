@@ -2,6 +2,7 @@ import { Interface, JsonRpcProvider, getAddress, type Provider } from "ethers";
 import { loadEnv, ZIA_FACTORY, ZIA_QUOTER, type BeaconEnv } from "@beacon/shared";
 import { encodeV3Path } from "./path.js";
 import { ZIA_FEE_TIERS, ZIA_W0G, uniqueZiaAssets, type ZiaToken } from "./tokens.js";
+import { formatTokenAmount } from "./intent.js";
 import type { EthCall } from "./zia.js";
 
 const FACTORY = new Interface([
@@ -20,12 +21,41 @@ export type ZiaPoolHit = {
   pool: string;
   quoted: boolean;
   amountOut?: string;
+  amountIn?: string;
+  amountInDisplay?: string;
+  estimatedOutDisplay?: string;
+  executableFromSafe?: boolean;
+  quotedAt?: string;
 };
 
 function ethCallFromProvider(provider: Provider): EthCall {
   return async (tx) => provider.call({ to: tx.to, data: tx.data });
 }
 
+function decodeAmountOut(raw: string): bigint {
+  const hex = (raw.startsWith("0x") ? raw.slice(2) : raw);
+  return hex.length >= 64 ? BigInt("0x" + hex.slice(0, 64)) : 0n;
+}
+
+async function quoteExactInput(
+  call: EthCall,
+  quoter: string,
+  tokenIn: string,
+  fee: number,
+  tokenOut: string,
+  amountIn: bigint,
+): Promise<bigint | null> {
+  if (amountIn <= 0n) return null;
+  const path = encodeV3Path(tokenIn, fee, tokenOut);
+  try {
+    const data = QUOTER.encodeFunctionData("quoteExactInput", [path, amountIn]);
+    const raw = await call({ to: quoter, data });
+    const out = decodeAmountOut(typeof raw === "string" ? raw : String(raw));
+    return out > 0n ? out : null;
+  } catch {
+    return null;
+  }
+}
 function decodePoolAddress(raw: string): string | null {
   const hex = (raw?.startsWith("0x") ? raw.slice(2) : raw || "").padStart(64, "0");
   if (!/^[0-9a-fA-F]{64}$/.test(hex.slice(-64))) return null;
@@ -102,39 +132,44 @@ export async function listSwapAssets(
   const tokens = uniqueZiaAssets().filter((t) => !t.native);
   const routes: ZiaPoolHit[] = [];
 
+  const quotedAt = new Date(now).toISOString();
   for (const token of tokens) {
     if (token.address.toLowerCase() === w0g.address.toLowerCase()) continue;
     const hit = await findPoolFee(call, factory, w0g.address, token.address);
     if (!hit) continue;
-    const path = encodeV3Path(w0g.address, hit.fee, token.address);
     const amountIn = 10n ** 16n;
-    let quoted = false;
-    let amountOut: string | undefined;
-    try {
-      const data = QUOTER.encodeFunctionData("quoteExactInput", [path, amountIn]);
-      const raw = await call({ to: quoter, data });
-      const hex = (raw.startsWith("0x") ? raw.slice(2) : raw);
-      const out = hex.length >= 64 ? BigInt("0x" + hex.slice(0, 64)) : 0n;
-      quoted = out > 0n;
-      amountOut = out.toString();
-    } catch {
-      quoted = false;
-    }
-    if (!quoted) continue;
+    const out = await quoteExactInput(call, quoter, w0g.address, hit.fee, token.address, amountIn);
+    if (out == null) continue;
+    const outDecimals = token.docsDecimals ?? 18;
     routes.push({
       from: { ...w0g, symbol: "0G", native: true },
       to: token,
       fee: hit.fee,
       pool: hit.pool,
-      quoted,
-      amountOut,
+      quoted: true,
+      amountIn: amountIn.toString(),
+      amountOut: out.toString(),
+      amountInDisplay: "0.01 0G",
+      estimatedOutDisplay: `${formatTokenAmount(out, outDecimals)} ${token.symbol}`,
+      executableFromSafe: true,
+      quotedAt,
     });
+    const dec = token.docsDecimals ?? 18;
+    const reverseIn = 10n ** BigInt(Math.max(0, dec - 3));
+    const reverseOut = await quoteExactInput(call, quoter, token.address, hit.fee, w0g.address, reverseIn);
+    if (reverseOut == null) continue;
     routes.push({
       from: token,
       to: { ...w0g, symbol: "0G", native: true },
       fee: hit.fee,
       pool: hit.pool,
-      quoted,
+      quoted: true,
+      amountIn: reverseIn.toString(),
+      amountOut: reverseOut.toString(),
+      amountInDisplay: `0.001 ${token.symbol}`,
+      estimatedOutDisplay: `${formatTokenAmount(reverseOut, 18)} 0G`,
+      executableFromSafe: false,
+      quotedAt,
     });
   }
 

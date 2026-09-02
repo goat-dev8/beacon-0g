@@ -146,6 +146,37 @@ export function HistoryRail({
             Export proofs
           </button>
         )}
+        {wallet && (conversations.length > 0 || recentActivity.length > 0) && (
+          <button
+            type="button"
+            onClick={() => {
+              const header = "kind,title,explorer_url,job_id,verify\n";
+              const convRows = conversations.flatMap((c) =>
+                (c.job_ids ?? []).map(
+                  (id) =>
+                    `job,${JSON.stringify(c.title)},,${id},/verify/${id}`,
+                ),
+              );
+              const actRows = recentActivity.map(
+                (a) =>
+                  `${a.kind},${JSON.stringify(a.title)},${a.explorer_url ?? ""},,`,
+              );
+              const blob = new Blob([header + [...convRows, ...actRows].join("\n")], {
+                type: "text/csv",
+              });
+              const href = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = href;
+              a.download = "beacon-history.csv";
+              a.click();
+              URL.revokeObjectURL(href);
+            }}
+            className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[var(--p-border)] px-3 text-xs font-medium text-[var(--p-muted)] hover:text-[var(--p-fg)]"
+          >
+            <Download className="size-3.5" />
+            Export CSV
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">

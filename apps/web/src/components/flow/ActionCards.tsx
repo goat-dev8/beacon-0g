@@ -201,18 +201,47 @@ export function ActionCard({
           {String(card.title ?? "Zia assets")}
         </p>
         <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.summary ?? "")}</p>
+        {card.asOf ? (
+          <p className="mt-1 font-mono text-[10px] text-[var(--p-faint)]">Quoted {String(card.asOf)}</p>
+        ) : null}
         <ul className="mt-3 space-y-2">
           {routes.map((row) => {
-            const r = row as { to?: { symbol?: string }; fee?: number; pool?: string };
+            const r = row as {
+              from?: { symbol?: string };
+              to?: { symbol?: string };
+              fee?: number;
+              pool?: string;
+              amountInDisplay?: string;
+              estimatedOutDisplay?: string;
+              executableFromSafe?: boolean;
+            };
+            const key = `${r.from?.symbol}-${r.to?.symbol}-${r.fee}`;
             return (
-              <li key={`${r.to?.symbol}-${r.fee}`} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-[var(--p-fg)]">0G → {r.to?.symbol}</span>
+              <li key={key} className="rounded-xl border border-[var(--p-border)] px-3 py-2">
+                <p className="text-sm font-medium text-[var(--p-fg)]">
+                  {r.from?.symbol} → {r.to?.symbol}
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-[var(--p-muted)]">
+                  {r.amountInDisplay ?? "—"} → ~{r.estimatedOutDisplay ?? "—"} · fee {r.fee}
+                </p>
+                {r.pool ? (
+                  <p className="mt-1 break-all font-mono text-[10px] text-[var(--p-faint)]">Pool {r.pool}</p>
+                ) : null}
+                <p className="mt-1 text-[11px] text-amber-200/90">
+                  {r.executableFromSafe
+                    ? "Executable from Beacon Safe if TeeML ALLOW."
+                    : "Quote only — Safe cannot execute this direction."}
+                </p>
                 <button
                   type="button"
-                  className="rounded-full border border-[var(--p-border)] px-3 py-1 text-xs"
-                  onClick={() => onQuickReply(`Swap 0.01 0G to ${r.to?.symbol}`)}
+                  className="mt-2 rounded-full border border-[var(--p-border)] px-3 py-1 text-xs"
+                  onClick={() =>
+                    onQuickReply(
+                      `Swap ${r.amountInDisplay ?? `0.01 ${r.from?.symbol ?? "0G"}`} to ${r.to?.symbol}`,
+                    )
+                  }
                 >
-                  Quote fee {r.fee}
+                  Quote this pair
                 </button>
               </li>
             );
@@ -1473,13 +1502,45 @@ export function ActionCard({
                 </button>
               )}
               {jobResult && (
-                <button
-                  type="button"
-                  className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
-                  onClick={() => void navigator.clipboard.writeText(jobResult)}
-                >
-                  Copy
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                    onClick={() => void navigator.clipboard.writeText(jobResult)}
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                    onClick={() => {
+                      const blob = new Blob([jobResult], { type: "text/markdown" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `beacon-${jobId.slice(0, 8)}.md`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    Download .md
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border border-[var(--p-border)] px-4 py-2 text-sm"
+                    onClick={() => {
+                      const blob = new Blob([jobResult], { type: "text/plain" });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `beacon-${jobId.slice(0, 8)}.txt`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    Download .txt
+                  </button>
+                </>
               )}
               <Link to={proofHref} className="rounded-full bg-signal px-4 py-2 text-sm font-medium text-ink">
                 View proof

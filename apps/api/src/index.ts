@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
 import { Interface, JsonRpcProvider, Wallet, getAddress, keccak256, toUtf8Bytes } from "ethers";
+import { createHash } from "node:crypto";
 import {
   aristotleEip1559Fees,
   AppError,
@@ -267,6 +268,10 @@ function explorerTx(hash: string): string {
   return `${env.ZEROG_EXPLORER.replace(/\/$/, "")}/tx/${hash}`;
 }
 
+function sha256Utf8(text: string): `0x${string}` {
+  return `0x${createHash("sha256").update(text, "utf8").digest("hex")}`;
+}
+
 function serializeQuote(q: JobQuote) {
   return {
     quoteId: q.quoteId,
@@ -316,6 +321,7 @@ function serializeJob(job: StoredJob) {
       ? `${env.ZEROG_STORAGE_SCAN.replace(/\/$/, "")}/?root=${job.storageRoot}`
       : null,
     resultText: job.resultText ?? null,
+    resultSha256: job.resultText ? sha256Utf8(job.resultText) : null,
     imageB64: job.imageB64 ?? null,
     denial: job.denial ?? null,
     explorer: {
@@ -732,7 +738,7 @@ app.get("/v1/jobs/:id/artifacts", async (req) => {
       id: "text",
       kind: "document",
       uri: "inline",
-      sha256: null,
+      sha256: job.resultText ? sha256Utf8(job.resultText) : null,
       meta: { model: job.quote.modelId, preview: job.resultText.slice(0, 500) },
     });
   }
@@ -1834,15 +1840,18 @@ app.post("/v1/flow/chat", async (req) => {
   }
   if (/what can i swap|swap assets|what assets can i swap|what tokens can i swap/.test(text)) {
     const listed = await listSwapAssets({ env });
-    const live = listed.routes.filter((r) => r.from.symbol === "0G");
+    const live = listed.routes.filter((r) => r.quoted);
+    const forward = live.filter((r) => r.from.symbol === "0G");
     return {
-      reply: live.length
-        ? `Live Zia routes (factory pool + quoter amountOut > 0): ${live.map((r) => `0G → ${r.to.symbol} @ ${r.fee}`).join("; ")}.`
+      reply: forward.length
+        ? `Live Zia book (0.01 0G sample, factory pool + quoter): ${forward
+            .map((r) => `0G → ${r.to.symbol} ~${r.estimatedOutDisplay} @ fee ${r.fee}`)
+            .join("; ")}. Reverse quotes are live; Safe cannot execute token→0G.`
         : "Beacon cannot verify a viable Zia route for this pair.",
       cards: [
         {
           type: "swap_assets",
-          title: "Zia swap assets",
+          title: "Zia live book",
           summary: listed.source,
           routes: live,
           asOf: listed.asOf,
