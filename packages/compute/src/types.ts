@@ -21,6 +21,13 @@ export type ChatCompletionResult = {
   providerAddress: string | null;
   trustMode: TrustMode;
   raw: unknown;
+  routerTrace?: RouterTrace | null;
+};
+
+export type RouterTrace = {
+  requestId: string | null;
+  provider: string | null;
+  teeVerified: boolean | null;
 };
 
 export type ChatCompletionsInput = {

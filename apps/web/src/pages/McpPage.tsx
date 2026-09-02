@@ -639,7 +639,7 @@ export function McpPage() {
               </div>
               <div className="min-w-0">
                 <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--p-faint)]">
-                  Access token (1 hour)
+                  Access token (until grant expires)
                 </p>
                 <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
                   <code className="min-w-0 max-w-[min(100%,18rem)] truncate rounded-[var(--p-radius-sm)] bg-[var(--p-bg)] px-2 py-1 font-mono text-xs">
@@ -677,7 +677,10 @@ export function McpPage() {
                     agent chat — it includes endpoint, tokens, mcp.json, and verification steps.
                   </li>
                   <li>Click Test connection here to confirm Beacon responds.</li>
-                  <li>When the access token expires (~1h), renew with the refresh token.</li>
+                  <li>
+                    Cursor mcp.json uses an access token that lasts until the grant expires (default 7
+                    days). OAuth clients still refresh hourly.
+                  </li>
                 </ol>
               </div>
             </div>
@@ -849,7 +852,7 @@ export function McpPage() {
               <p>POST {healthQuery.data?.endpoint ?? "…/mcp"} — JSON-RPC MCP (Bearer access token)</p>
               <p>GET /.well-known/oauth-protected-resource</p>
               <p>POST /v1/mcp/oauth/token — authorization_code (PKCE) + refresh_token</p>
-              <p>Access TTL 1h · refresh bound to grant · Redis multi-user grants</p>
+              <p>Connect-Agent access lasts until grant expiry · OAuth access 1h + refresh · Redis grants</p>
             </div>
           </details>
         </section>

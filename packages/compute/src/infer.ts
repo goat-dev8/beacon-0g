@@ -1,5 +1,6 @@
+import { AbiCoder, getAddress, keccak256, toUtf8Bytes } from "ethers";
 import { AppError, loadEnv, type BeaconEnv } from "@beacon/shared";
-import type { ChatCompletionResult, ChatCompletionsInput, ChatUsage } from "./types.js";
+import type { ChatCompletionResult, ChatCompletionsInput, ChatUsage, RouterTrace } from "./types.js";
 
 function header(res: Response, name: string): string | null {
   return res.headers.get(name) ?? res.headers.get(name.toLowerCase());
@@ -35,6 +36,45 @@ function providerFromBody(json: Record<string, unknown>): string | null {
     (trace && typeof trace.provider === "string" && trace.provider) ||
     (trace && typeof trace.provider_address === "string" && trace.provider_address);
   return addr || null;
+}
+
+export function extractRouterTrace(raw: unknown): RouterTrace | null {
+  if (!raw || typeof raw !== "object") return null;
+  const rec = raw as Record<string, unknown>;
+  const trace = rec.x_0g_trace;
+  const t = trace && typeof trace === "object" ? (trace as Record<string, unknown>) : {};
+  const requestId =
+    (typeof rec.id === "string" && rec.id) ||
+    (typeof t.request_id === "string" && t.request_id) ||
+    (typeof t.requestId === "string" && t.requestId) ||
+    null;
+  const provider =
+    (typeof t.provider === "string" && t.provider) ||
+    (typeof t.provider_address === "string" && t.provider_address) ||
+    (typeof rec.provider === "string" && rec.provider) ||
+    (typeof rec.provider_address === "string" && rec.provider_address) ||
+    null;
+  let teeVerified: boolean | null = null;
+  if (typeof t.tee_verified === "boolean") teeVerified = t.tee_verified;
+  else if (typeof t.teeVerified === "boolean") teeVerified = t.teeVerified;
+  if (!requestId && !provider && teeVerified == null) return null;
+  return { requestId, provider, teeVerified };
+}
+
+/** keccak256(abi.encode(keccak256(utf8 requestId), provider, teeVerified)). Router-reported fingerprint, not independent proof. */
+export function hashRouterTraceClaim(trace: RouterTrace | null | undefined): string | null {
+  if (!trace?.requestId || !trace.provider || typeof trace.teeVerified !== "boolean") return null;
+  try {
+    const idHash = keccak256(toUtf8Bytes(trace.requestId));
+    return keccak256(
+      AbiCoder.defaultAbiCoder().encode(
+        ["bytes32", "address", "bool"],
+        [idHash, getAddress(trace.provider), trace.teeVerified],
+      ),
+    );
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -124,6 +164,7 @@ export async function chatCompletions(
     providerAddress: providerHeader || providerFromBody(json),
     trustMode: input.trustMode,
     raw: json,
+    routerTrace: extractRouterTrace(json),
   };
 }
 

@@ -48,7 +48,7 @@ export function buildSetupPrompt(opts: {
             "1) Point the client at the MCP endpoint (JSON-RPC POST).",
             "2) Send header Authorization: Bearer <access_token> on every request.",
             "3) Call initialize, then tools/list, then get_safe + get_policy.",
-            `4) When the access token expires (~1h), POST ${api}/v1/mcp/oauth/token with grant_type=refresh_token.`,
+            `4) OAuth access tokens expire in ~1h — POST ${api}/v1/mcp/oauth/token with grant_type=refresh_token. Cursor mcp.json tokens last until the grant expires.`,
           ];
 
   return [

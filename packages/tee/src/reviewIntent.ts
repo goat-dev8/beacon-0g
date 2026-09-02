@@ -1,8 +1,11 @@
 import {
   chatCompletions,
+  extractRouterTrace,
+  hashRouterTraceClaim,
   usageJson,
   type ChatCompletionResult,
   type ComputeBroker,
+  type RouterTrace,
 } from "@beacon/compute";
 import { AppError, loadEnv, type BeaconEnv } from "@beacon/shared";
 import { proveTeeIndependently, type IndependentTeeProof } from "./independent.js";
@@ -28,6 +31,7 @@ export type ReviewDecision = {
   eip191Ok: boolean | null;
   recoveredSigner: string | null;
   expectedSigner: string | null;
+  routerTrace?: (RouterTrace & { claimHash: string | null }) | null;
 };
 
 export type IndependentProofFn = (opts: {
@@ -65,6 +69,12 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
+function packTrace(raw: unknown): (RouterTrace & { claimHash: string | null }) | null {
+  const trace = extractRouterTrace(raw);
+  if (!trace) return null;
+  return { ...trace, claimHash: hashRouterTraceClaim(trace) };
+}
+
 function deny(partial: Partial<ReviewDecision> & { reason: string }): ReviewDecision {
   return {
     allow: false,
@@ -77,6 +87,7 @@ function deny(partial: Partial<ReviewDecision> & { reason: string }): ReviewDeci
     eip191Ok: partial.eip191Ok ?? null,
     recoveredSigner: partial.recoveredSigner ?? null,
     expectedSigner: partial.expectedSigner ?? null,
+    routerTrace: partial.routerTrace ?? null,
   };
 }
 
@@ -141,6 +152,19 @@ export async function reviewIntent(
   }
 
   const chatId = completion.zgResKey || completion.chatId;
+  const routerTrace = packTrace(completion.raw) ?? (completion.routerTrace
+    ? { ...completion.routerTrace, claimHash: hashRouterTraceClaim(completion.routerTrace) }
+    : null);
+  if (routerTrace?.teeVerified === false) {
+    return deny({
+      reason: "Router reported tee_verified=false. Independent EIP-191 was not treated as a pass.",
+      category: "router_unverified",
+      chatId,
+      zgResKey: completion.zgResKey,
+      providerAddress: completion.providerAddress,
+      routerTrace,
+    });
+  }
   if (!chatId || !completion.zgResKey) {
     return deny({
       reason: "TEE proof unavailable: missing chatID / ZG-Res-Key",
@@ -249,5 +273,6 @@ export async function reviewIntent(
     eip191Ok: true,
     recoveredSigner: independent.recoveredSigner,
     expectedSigner: independent.expectedSigner,
+    routerTrace,
   };
 }

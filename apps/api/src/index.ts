@@ -21,7 +21,7 @@ import {
   ERC8004_AGENT_ID,
 } from "@beacon/shared";
 import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } from "@beacon/quote";
-import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
+import { chatCompletions, createComputeBroker, ensureLedgerBalance, extractRouterTrace, hashRouterTraceClaim, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
 import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, findPoolFee, getPoolAtFee, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
@@ -162,6 +162,12 @@ type StoredJob = {
   serviceId?: string;
   payMode?: "safe" | "wallet";
   pipelineStarted?: boolean;
+  computeRouterTrace?: {
+    requestId: string | null;
+    provider: string | null;
+    teeVerified: boolean | null;
+    claimHash: string | null;
+  } | null;
   events: Array<{ type: string; payload: unknown; ts: string }>;
 };
 
@@ -415,8 +421,10 @@ function serializeJob(job: StoredJob) {
           eip191Ok: job.tee.eip191Ok,
           recoveredSigner: job.tee.recoveredSigner,
           expectedSigner: job.tee.expectedSigner,
+          routerTrace: job.tee.routerTrace ?? null,
         }
       : null,
+    computeRouterTrace: job.computeRouterTrace ?? null,
     lockTx: job.lockTx ?? null,
     releaseTx: job.releaseTx ?? null,
     refundTx: job.refundTx ?? null,
@@ -1155,6 +1163,10 @@ async function runLockedJob(job: StoredJob): Promise<StoredJob> {
         providerAddress: job.quote.providerAddress || undefined,
       });
       job.resultText = completion.content;
+      const trace = completion.routerTrace ?? extractRouterTrace(completion.raw);
+      job.computeRouterTrace = trace
+        ? { ...trace, claimHash: hashRouterTraceClaim(trace) }
+        : null;
     }
 
     emitEvent(job, "thinking", { text: "Encrypting evidence and uploading to 0G Storage." });
@@ -1432,6 +1444,12 @@ app.get("/v1/verify/:id", async (req) => {
           expectedSigner: job.tee?.expectedSigner ?? null,
           storageRoot: job.storageRoot ?? null,
           resultSha256: job.resultText ? sha256Utf8(job.resultText) : null,
+          routerTrace: {
+            tee: job.tee?.routerTrace ?? null,
+            compute: job.computeRouterTrace ?? null,
+            honesty:
+              "Router x_0g_trace is what the 0G Router reported. Independent proof is EIP-191 recover vs teeSignerAddress. claimHash is keccak256(abi.encode(keccak256(requestId), provider, teeVerified)) computed locally — not a receipt-registry pass.",
+          },
           txs: {
             lock: job.lockTx ? explorerTx(job.lockTx) : null,
             release: job.releaseTx ? explorerTx(job.releaseTx) : null,

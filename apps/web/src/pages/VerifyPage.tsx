@@ -5,6 +5,7 @@ import { apiBase } from "@/lib/publicEnv";
 import { proofOutcome } from "@/lib/verifyProof";
 import { compareReceipts, compareChatIdHash, readReceiptFromRpc, type BrowserReceipt } from "@/lib/onchainReceipt";
 import { compareResultHash, resultSha256 } from "@/lib/resultHash";
+import { recomputeRouterTraceClaim } from "@/lib/routerTraceHash";
 import { SafeMarkdown } from "@/components/SafeMarkdown";
 import "highlight.js/styles/github-dark.css";
 
@@ -35,7 +36,19 @@ type VerifyPayload = {
       eip191Ok?: boolean | null;
       recoveredSigner?: string | null;
       expectedSigner?: string | null;
+      routerTrace?: {
+        requestId?: string | null;
+        provider?: string | null;
+        teeVerified?: boolean | null;
+        claimHash?: string | null;
+      } | null;
     };
+    computeRouterTrace?: {
+      requestId?: string | null;
+      provider?: string | null;
+      teeVerified?: boolean | null;
+      claimHash?: string | null;
+    } | null;
     lockTx?: string | null;
     releaseTx?: string | null;
     refundTx?: string | null;
@@ -77,6 +90,21 @@ type VerifyPayload = {
     expectedSigner?: string | null;
     storageRoot?: string | null;
     resultSha256?: string | null;
+    routerTrace?: {
+      tee?: {
+        requestId?: string | null;
+        provider?: string | null;
+        teeVerified?: boolean | null;
+        claimHash?: string | null;
+      } | null;
+      compute?: {
+        requestId?: string | null;
+        provider?: string | null;
+        teeVerified?: boolean | null;
+        claimHash?: string | null;
+      } | null;
+      honesty?: string;
+    };
     txs?: Record<string, string | null>;
   } | null;
   related?: {
@@ -159,6 +187,26 @@ export function VerifyPage() {
     ],
     [job, onchain, storageRoot],
   );
+
+  const routerReported = data?.provenance?.routerTrace?.compute ?? data?.provenance?.routerTrace?.tee ?? job?.computeRouterTrace ?? job?.tee?.routerTrace ?? null;
+  const browserClaim = useMemo(() => {
+    const t = routerReported;
+    if (!t?.requestId || !t.provider || typeof t.teeVerified !== "boolean") return null;
+    if (!t.provider.startsWith("0x") || t.provider.length !== 42) return null;
+    try {
+      return recomputeRouterTraceClaim({
+        requestId: t.requestId,
+        provider: t.provider as `0x${string}`,
+        teeVerified: t.teeVerified,
+      });
+    } catch {
+      return null;
+    }
+  }, [routerReported]);
+  const claimMatch =
+    browserClaim && routerReported?.claimHash
+      ? browserClaim.toLowerCase() === routerReported.claimHash.toLowerCase()
+      : null;
 
   async function copyReceipt() {
     const payload = {
@@ -420,6 +468,37 @@ export function VerifyPage() {
                   }
                 />
                 <HashRow label="Result SHA-256" value={data?.provenance?.resultSha256 ?? job?.resultSha256} />
+              </dl>
+            </section>
+
+            <section className="rounded-2xl border p-5" style={{ borderColor: LINE, background: CARD }}>
+              <h2 className="font-display text-lg font-semibold" style={{ color: FG }}>
+                Router-reported trace
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: MUTED }}>
+                {data?.provenance?.routerTrace?.honesty ??
+                  "Router x_0g_trace is what the 0G Router reported. Independent proof is EIP-191 recover vs teeSignerAddress. This keccak is not a receipt-registry pass."}
+              </p>
+              <dl className="mt-4 grid gap-4 text-sm">
+                <Meta label="Request id" value={routerReported?.requestId} />
+                <HashRow
+                  label="Router provider"
+                  value={routerReported?.provider}
+                  href={routerReported?.provider ? explorerAddress(routerReported.provider) : undefined}
+                />
+                <Meta
+                  label="Router tee_verified"
+                  value={
+                    routerReported?.teeVerified == null ? "not in response" : String(routerReported.teeVerified)
+                  }
+                />
+                <HashRow label="API claim hash" value={routerReported?.claimHash} />
+                <HashRow label="Browser keccak" value={browserClaim} />
+                <Meta
+                  label="Browser vs API"
+                  value={claimMatch == null ? "nothing to compare" : claimMatch ? "match" : "mismatch"}
+                  tone={claimMatch ? "ok" : claimMatch === false ? "fail" : undefined}
+                />
               </dl>
             </section>
 

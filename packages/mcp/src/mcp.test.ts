@@ -7,6 +7,7 @@ import {
   issueMcpRefreshToken,
   verifyMcpRefreshToken,
   newGrantId,
+  accessTtlForGrant,
 } from "./tokens.js";
 import { isGrantActive, type McpGrant } from "./grants.js";
 import { gateTool } from "./tools.js";
@@ -69,6 +70,12 @@ describe("mcp tokens", () => {
     expect(v?.grantId).toBe(grantId);
     expect(v?.wallet).toBe("0xabc0000000000000000000000000000000000001");
     expect(v?.expiresAt).toBe(expiresAt);
+  });
+
+  it("grant access TTL matches remaining grant life, not 1h", () => {
+    const now = 1_700_000_000;
+    const expiresAt = new Date((now + 7 * 24 * 3600) * 1000).toISOString();
+    expect(accessTtlForGrant(expiresAt, now)).toBe(7 * 24 * 3600);
   });
 
   it("rejects tampered tokens", () => {

@@ -10,8 +10,15 @@ type Envelope = {
   exp: number;
 };
 
-export const MCP_ACCESS_TTL_SECONDS = 60 * 60; // 1h
+export const MCP_ACCESS_TTL_SECONDS = 60 * 60; // OAuth access default (refresh still required)
 export const MCP_REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60; // 7d max default
+
+/** Cursor pastes a static Bearer. Match the grant remaining lifetime (cap 30d). */
+export function accessTtlForGrant(expiresAtIso: string, nowSeconds = Math.floor(Date.now() / 1000)): number {
+  const exp = Math.floor(Date.parse(expiresAtIso) / 1000);
+  if (!Number.isFinite(exp)) return MCP_ACCESS_TTL_SECONDS;
+  return Math.max(60, Math.min(exp - nowSeconds, 30 * 24 * 3600));
+}
 
 function encode(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");

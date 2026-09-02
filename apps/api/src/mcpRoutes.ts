@@ -5,6 +5,7 @@ import { AppError, format0g, isAppError } from "@beacon/shared";
 import {
   DEFAULT_CONNECT_SCOPES,
   MCP_ACCESS_TTL_SECONDS,
+  accessTtlForGrant,
   appendAudit,
   buildCursorMcpConfig,
   buildSetupPrompt,
@@ -303,12 +304,13 @@ export function registerMcpRoutes(app: FastifyInstance, deps: McpRouteDeps) {
       revokedAt: null,
       refreshTokenHash: null,
     };
+    const refreshExp = Math.floor(Date.parse(grant.expiresAt) / 1000);
     const access = issueMcpAccessToken({
       grantId: grant.id,
       wallet: grant.wallet,
       secret: deps.env.SESSION_SECRET,
+      ttlSeconds: accessTtlForGrant(grant.expiresAt),
     });
-    const refreshExp = Math.floor(Date.parse(grant.expiresAt) / 1000);
     const refreshToken = issueMcpRefreshToken({
       grantId: grant.id,
       wallet: grant.wallet,

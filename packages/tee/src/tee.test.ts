@@ -421,4 +421,43 @@ describe("reviewIntent", () => {
     );
     expect(decision.allow).toBe(false);
   });
+
+  it("DENY when Router reports tee_verified=false", async () => {
+    const decision = await reviewIntent(
+      {
+        userText: "Analyze this wallet.",
+        tool: "cheap",
+        amount0g: "0.001",
+        target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
+        model: "glm-5.2",
+      },
+      {
+        env,
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              id: "cmpl",
+              choices: [{ message: { content: '{"allow":true,"reason":"ok","category":"infer"}' } }],
+              usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+              x_0g_trace: {
+                request_id: "cmpl",
+                provider: "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D",
+                tee_verified: false,
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "ZG-Res-Key": "chat-ok",
+                "X-0G-Provider-Address": "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D",
+              },
+            },
+          ),
+      },
+    );
+    expect(decision.allow).toBe(false);
+    expect(decision.category).toBe("router_unverified");
+    expect(decision.routerTrace?.teeVerified).toBe(false);
+  });
 });
