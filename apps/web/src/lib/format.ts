@@ -14,6 +14,15 @@ export function formatNativeFeeDisplay(raw: string | number | undefined | null):
   return `${rounded} ${unit}`;
 }
 
+/** Native 0G for UI. Never prefix with `$` — amounts are not USD. */
+export function formatOgDisplay(raw: string | number | undefined | null): string {
+  if (raw == null || raw === "") return "—";
+  const text = String(raw).trim();
+  if (!text) return "—";
+  const stripped = text.replace(/^\$/, "").replace(/\s*0G$/i, "").trim();
+  return stripped ? `${stripped} 0G` : "—";
+}
+
 /** Compact USDC.e / 0G amounts for cards. */
 export function formatTokenAmount(raw: string | number | undefined | null, symbol = ""): string {
   if (raw == null || raw === "") return "-";

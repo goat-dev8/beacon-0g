@@ -7,7 +7,7 @@ import { shortAddress } from "@/lib/wallet";
 import { useProductWallet } from "@/lib/productWallet";
 import { cn } from "@/lib/utils";
 
-/** Live Safe + 0G rails context for Agent Jobs (Safe prepaid or wallet lockFrom). */
+/** Live Safe + 0G rails context for Agent Jobs (Safe prepaid or wallet lockNative). */
 export function DeskContextStrip({
   escrowLockedDisplay,
   lockTx,
@@ -42,7 +42,7 @@ export function DeskContextStrip({
             0G Aristotle · Agent Jobs
           </p>
           <p className="mt-0.5 text-sm text-ink-muted">
-            Prefer your personal Beacon Safe for job locks. Wallet 0G lockFrom remains as fallback.
+            Prefer your personal Beacon Safe for job locks. Wallet lockNative remains as fallback.
           </p>
         </div>
         <Link
@@ -81,7 +81,7 @@ export function DeskContextStrip({
         <Metric
           label="Job lock"
           value={escrowLockedDisplay ? `${escrowLockedDisplay}` : "Ready"}
-          hint={lockTx ? `${lockTx.slice(0, 10)}…` : "Safe prepaid or wallet lockFrom"}
+          hint={lockTx ? `${lockTx.slice(0, 10)}…` : "Safe prepaid or wallet lockNative"}
         />
       </div>
     </section>

@@ -37,6 +37,7 @@ import { DeskContextStrip } from "@/components/workspace/DeskContextStrip";
 import { ResultExperience } from "@/components/workspace/ResultExperience";
 import { ExamplePrompts, type ExampleChip } from "@/components/workspace/ExamplePrompts";
 import { NETWORK, CONTRACTS } from "@/lib/chain";
+import { formatOgDisplay } from "@/lib/format";
 import { ZEROG_STEPS_SAFE, ZEROG_STEPS_WALLET, executionStepState } from "@/lib/executionSteps";
 
 const ICONS: Record<ServiceId, LucideIcon> = {
@@ -75,7 +76,7 @@ const SERVICE_HINTS: Partial<
     examples: [
       "TypeScript function that checksums a Aristotle (chain 16661) address",
       "Python CLI: print 0G Aristotle chain id 16661 and 0G 18-decimal amount",
-      "Snippet: encode a BeaconEscrow lock amount from $0.011 0G",
+      "Snippet: encode a BeaconEscrow lockNative amount of 0.011 0G",
     ],
   },
   documents: {
@@ -130,7 +131,7 @@ const SERVICE_HINTS: Partial<
     blurb: "A real analysis: question, findings, trade-offs, recommendation, caveats.",
     examples: [
       "Analyze 0G→USDC.e on Aristotle SwapDesk vs waiting for mainnet Zia",
-      "Trade-offs: Beacon Safe prepaid vs wallet lockFrom for one 0G research job",
+      "Trade-offs: Beacon Safe prepaid vs wallet lockNative for one 0G research job",
       "Should an agent use the live Router catalog or a DEX pool price for a Aristotle spend guard?",
     ],
   },
@@ -739,7 +740,9 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
                 <p className="font-mono text-xs uppercase tracking-widest text-ink-faint">
                   Micro price · 0G
                 </p>
-                <p className="mt-2 break-all font-display text-3xl font-extrabold text-ink sm:text-4xl">{quote.priceDisplay}</p>
+                <p className="mt-2 break-all font-display text-3xl font-extrabold text-ink sm:text-4xl">
+                  {formatOgDisplay(quote.priceDisplay)}
+                </p>
                 <p className="mt-2 text-sm text-ink-muted">ETA {formatEta(quote.etaSeconds)}</p>
                 {quote.breakdown && (
                   <dl className="mt-5 grid gap-2 border-t border-line pt-4 text-xs text-ink-muted sm:grid-cols-2">
@@ -755,19 +758,19 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
                     </div>
                     <div className="flex justify-between gap-2">
                       <dt>Model cost</dt>
-                      <dd className="font-mono">${quote.breakdown.modelCostUsdt0}</dd>
+                      <dd className="font-mono">{quote.breakdown.modelCostUsdt0} 0G</dd>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <dt>Infra</dt>
-                      <dd className="font-mono">${quote.breakdown.infraCostUsdt0}</dd>
+                      <dt>Storage</dt>
+                      <dd className="font-mono">{quote.breakdown.infraCostUsdt0} 0G</dd>
                     </div>
                     <div className="flex justify-between gap-2">
                       <dt>Platform fee</dt>
-                      <dd className="font-mono">${quote.breakdown.platformFeeUsdt0}</dd>
+                      <dd className="font-mono">{quote.breakdown.platformFeeUsdt0} 0G</dd>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <dt>Network cushion</dt>
-                      <dd className="font-mono">${quote.breakdown.networkFeeUsdt0}</dd>
+                      <dt>Buffer</dt>
+                      <dd className="font-mono">{quote.breakdown.networkFeeUsdt0} 0G</dd>
                     </div>
                   </dl>
                 )}
@@ -786,16 +789,16 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
                     Settlement timeline
                   </p>
                   <ol className="mt-2 space-y-1.5 text-xs text-ink-muted">
-                    <li>1. Unlock Beacon Agent once per browser session</li>
-                    <li>2. Agent executor pays from your Safe (no per-job wallet prompt)</li>
-                    <li>3. BeaconEscrow locks Aristotle 0G</li>
-                    <li>4. Agent generates · acceptance gates run</li>
-                    <li>5. Escrow release on pass · refund to Safe/wallet on fail</li>
+                    <li>1. Connect on 0G Aristotle (chain 16661)</li>
+                    <li>2. Pay from Beacon Safe (executor) or lock native 0G from the wallet</li>
+                    <li>3. BeaconJobEscrow.lockNative holds 0G until the job passes</li>
+                    <li>4. 0G Compute + TeeML · Storage evidence</li>
+                    <li>5. Release to treasury on pass · refund to Safe/wallet on fail</li>
                   </ol>
                   <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
-                    Safe path: your session proves who requested the job; the on-chain Safe policy
-                    authorizes vault.execute(transfer→escrow), then lockPrepaid. Wallet fallback
-                    uses ERC-20 approve + lockFrom.
+                    Safe path: session proves the owner; vault.execute forwards native 0G into
+                    lockNative. Wallet path: the connected account pays lockNative directly. There
+                    is no ERC-20 lockFrom on 0G.
                   </p>
                 </div>
               </div>
@@ -870,8 +873,7 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
                   : "Fund Beacon Safe (and set policy) for zero MetaMask job locks, or pay once with wallet 0G."}
               </p>
               <p className="mt-1 font-mono text-[11px] text-ink-faint">
-                Wallet fallback: ERC-20 approve → BeaconEscrow.lockFrom. Safe path:
-                vault.execute(transfer) → escrow.lockPrepaid.
+                Wallet: BeaconJobEscrow.lockNative. Safe: vault.execute → lockNative.
               </p>
             </motion.div>
           )}
@@ -890,7 +892,7 @@ export function Workspace({ embedded = false }: { embedded?: boolean } = {}) {
                 {streamNote ? ` · ${streamNote}` : ""}
               </p>
               <p className="mt-1 font-mono text-[11px] text-ink-faint">
-                gpt-5.6-sol · {liveTick}s elapsed · real model, live retrieval
+                {quote?.breakdown?.model ?? "0G Compute"} · {liveTick}s elapsed · live catalog, no cloud fallback
               </p>
               {lockTx && (
                 <a
@@ -1053,7 +1055,7 @@ function Timeline({
 function streamNoteHint(status?: JobStatus): string | null {
   if (!status) return null;
   if (status === "PREPARING") return "Worker picked up the locked job…";
-  if (status === "GENERATING") return "gpt-5.6-sol thinking · retrieving sources · composing…";
+  if (status === "GENERATING") return "0G Compute generating · live catalog model…";
   if (status === "COMPOSING") return "Handing artifacts to quality checks…";
   if (status === "ACCEPTING") return "Objective and brand gates; AI judge when available…";
   if (status === "SETTLING") return "Releasing escrow to the configured payee…";
@@ -1087,13 +1089,13 @@ function ZeroGRails({
         <div>
           <p className="font-mono text-[11px] uppercase tracking-widest text-signal-deep">
             {payMode === "wallet"
-              ? "ERC-20 lockFrom · Aristotle 0G escrow"
+              ? "Wallet lockNative · Aristotle 0G escrow"
               : "Beacon Safe · Aristotle 0G escrow"}
           </p>
           <p className="mt-1 text-xs text-ink-muted">
             {payMode === "wallet"
-              ? "Payment Required → authorize → lock → settle → receipt"
-              : "Fund Safe → vault.execute → lockPrepaid → settle → receipt"}
+              ? "Connect → lockNative → Compute → Storage → release or refund"
+              : "Fund Safe → vault.execute(lockNative) → settle → receipt"}
           </p>
         </div>
         <a

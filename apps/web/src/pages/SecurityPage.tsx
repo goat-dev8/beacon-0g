@@ -513,8 +513,8 @@ export function SecurityPage() {
 
         <footer className="border-t border-[var(--p-border)] pt-6 text-center">
           <p className="text-xs text-[var(--p-faint)]">
-            Agent Jobs prefer this Safe: vault.execute(transfer→escrow) + lockPrepaid. Wallet ERC-20
-            lockFrom remains as fallback.
+            Agent Jobs prefer this Safe: vault.execute → BeaconJobEscrow.lockNative. Wallet
+            lockNative remains as fallback.
           </p>
           <p className="mt-1 font-mono text-[10px] text-[var(--p-faint)]">
             {NETWORK.name} · Beacon Safe · Aristotle 0G

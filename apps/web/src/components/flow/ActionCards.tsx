@@ -664,7 +664,7 @@ export function ActionCard({
           {card.serviceId != null && (
             <div>
               Service · {String(card.serviceId)}
-              {card.priceUsdt0 != null ? ` · $${String(card.priceUsdt0)}` : ""}
+              {card.priceUsdt0 != null ? ` · ${String(card.priceUsdt0)} 0G` : ""}
             </div>
           )}
           <div>{String(card.ogPrimitive ?? "Security Policy · server-enforced")}</div>

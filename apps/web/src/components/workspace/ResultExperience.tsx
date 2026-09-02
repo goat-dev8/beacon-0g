@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { Button, FacetCtaPair } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { NETWORK } from "@/lib/chain";
+import { formatOgDisplay } from "@/lib/format";
 import "highlight.js/styles/github-dark.css";
 
 type Artifact = {
@@ -134,11 +135,13 @@ export function ResultExperience({
     receiptQuery.data?.receipt?.txHash ??
     receiptQuery.data?.receipt?.payment?.txHash ??
     null;
-  const paidDisplay =
+  const paidDisplay = formatOgDisplay(
     quote?.priceDisplay ??
-    (receiptQuery.data?.receipt?.payment?.amountUsdt0
-      ? `$${(Number(receiptQuery.data.receipt.payment.amountUsdt0) / 1e6).toFixed(6)}`
-      : null);
+      receiptQuery.data?.receipt?.display?.priceDisplay ??
+      receiptQuery.data?.receipt?.payment?.amountUsdt0 ??
+      null,
+  );
+  const paidOrDash = paidDisplay === "—" ? null : paidDisplay;
 
   const body = contentQuery.data?.content;
   const bodyKind = contentQuery.data?.kind ?? selected?.kind ?? "result";
@@ -218,7 +221,7 @@ export function ResultExperience({
             {outcomeFailed ? "Generation failed. You were not charged." : "Beacon finished this for you"}
           </p>
           {liveModel && (
-            <p className="mt-1 font-mono text-[11px] text-ink-faint">gpt-5.6-sol</p>
+            <p className="mt-1 font-mono text-[11px] text-ink-faint">{liveModel}</p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -367,21 +370,24 @@ export function ResultExperience({
       </h1>
       <p className="mt-2 max-w-[65ch] text-ink-muted">
         {needsLook && "Quality is uncertain. Accept to settle, or reject with no charge."}
-        {outcomePassed && paidDisplay && `Paid ${paidDisplay} · quality checks passed`}
-        {outcomePassed && !paidDisplay && "Quality checks passed"}
+        {outcomePassed && paidOrDash && `Paid ${paidOrDash} · quality checks passed`}
+        {outcomePassed && !paidOrDash && "Quality checks passed"}
         {outcomeFailed && failBlurb}
       </p>
 
       {(meta || quote) && (
         <dl className="mt-5 grid grid-cols-2 gap-3 rounded-2xl border border-line bg-paper/40 p-4 text-xs sm:grid-cols-4">
-          <MetaCell label="Model" value="gpt-5.6-sol" />
+          <MetaCell
+            label="Model"
+            value={liveModel ?? quote?.breakdown?.model ?? "0G Compute"}
+          />
           <MetaCell
             label="Tokens"
             value={
               meta ? `${meta.inputTokens} in · ${meta.outputTokens} out` : "—"
             }
           />
-          <MetaCell label="Total" value={quote?.priceDisplay ?? "—"} />
+          <MetaCell label="Total" value={formatOgDisplay(quote?.priceDisplay)} />
           <MetaCell label="ETA was" value={quote ? `~${Math.round(quote.etaSeconds / 60)} min` : "—"} />
         </dl>
       )}
@@ -415,8 +421,8 @@ export function ResultExperience({
         <p className="font-mono text-[11px] uppercase tracking-widest text-ink-faint">Receipt</p>
         <dl className="mt-3 space-y-2 text-sm">
           <Row label="Job" value={`${jobId.slice(0, 8)}…`} mono />
-          {paidDisplay && (
-            <Row label="Amount" value={outcomeFailed ? "$0.00" : paidDisplay} />
+          {paidOrDash && (
+            <Row label="Amount" value={outcomeFailed ? "0 0G" : paidOrDash} />
           )}
           <Row
             label="Status"

@@ -229,7 +229,7 @@ function summaryForCard(card: AgentCard, cardType: ActionableCardType): string {
     return `Bridge ${String(card.amountDisplay)} USDC.e → ${String(card.destination)}`;
   }
   if (cardType === "x402_quote") {
-    return `$${String(card.priceUsdt0)} · ${String(card.provider ?? "Beacon")}`;
+    return `${String(card.priceUsdt0)} 0G · ${String(card.provider ?? "Beacon")}`;
   }
   if (cardType === "media_result") {
     return String(card.summary ?? "Result ready");

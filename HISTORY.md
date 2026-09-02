@@ -156,7 +156,7 @@ P0 from the plan: *native vault+factory, escrow refund/release, TeeML processRes
 
 **P3 (will not do):** DA, chain 7857, Payment Layer as user wallet, JAINE, clone TradeGPT, LP zaps, Robinhood.
 
-**Honest leftover naming:** some policy fields still say `*Usdt0` in types while the UI unit is 0G. Dead Flare card types early-return “Not on 0G”.
+**Honest leftover naming:** some policy fields still say `*Usdt0` in types while the UI unit is 0G. Dead Flare card types early-return “Not on 0G”. Jobs desk copy is native 0G (`lockNative`, quote breakdown in 0G, live model from catalog) — not `$` / ERC-20 `lockFrom` / hardcoded `gpt-5.6-sol`.
 
 **Plan remaining unknowns (research, not blockers for hosted web):** Path B wrap without `WETH9()`, first paid Router invoice vs catalog neuron, z-image `processResponse` with empty content, AKINDO submit instant, Payment Layer vs Direct-only for TeeML.
 
