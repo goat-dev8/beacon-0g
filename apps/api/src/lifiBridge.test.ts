@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { destinationComplete, parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
+import { destinationComplete, extractBridgeFromChainId, extractBridgeTxHash, parseBridgeIntent, quoteLifiBridge, statusLifiBridge } from "./lifiBridge.js";
 
 describe("parseBridgeIntent", () => {
   it("parses Base USDC → 0G", () => {
@@ -121,5 +121,19 @@ describe("destinationComplete", () => {
     expect(destinationComplete({ complete: true, receivingTx: "0xdst" })).toBe(true);
     expect(destinationComplete({ complete: true, receivingTx: null })).toBe(false);
     expect(destinationComplete({ complete: false, receivingTx: "0xdst" })).toBe(false);
+  });
+});
+
+describe("extractBridgeTxHash", () => {
+  const hash = "0x" + "ab".repeat(32);
+  it("reads txHash or a hash embedded in text", () => {
+    expect(extractBridgeTxHash({ txHash: hash })).toBe(hash);
+    expect(extractBridgeTxHash({ text: `status ${hash} from Base` })).toBe(hash);
+    expect(extractBridgeTxHash({ text: "Bridge 1 USDC from Base to 0G" })).toBeNull();
+  });
+  it("defaults fromChainId to Base unless Ethereum is named", () => {
+    expect(extractBridgeFromChainId({ fromChainId: 1 })).toBe(1);
+    expect(extractBridgeFromChainId({ text: "ethereum" })).toBe(1);
+    expect(extractBridgeFromChainId({ text: "Base" })).toBe(8453);
   });
 });

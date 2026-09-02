@@ -1960,6 +1960,7 @@ registerMcpRoutes(app, {
     }
     return quoteLifiBridge(intent, getAddress(wallet));
   },
+  statusBridge: (txHash, fromChainId) => statusLifiBridge(txHash, fromChainId),
   executeSafeSwap: (input) => runSafeZiaSwap(input),
   listJobs: (wallet) => listJobsForWallet(wallet),
   listHistory: async (wallet) => {

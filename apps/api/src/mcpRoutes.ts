@@ -43,6 +43,7 @@ import {
 import { quoteZiaPair } from "@beacon/swap";
 import type { RedisRest } from "./flowRedis.js";
 import { redisLikeFromRest } from "./mcpRedis.js";
+import { extractBridgeFromChainId, extractBridgeTxHash } from "./lifiBridge.js";
 
 type JobLite = {
   id: string;
@@ -93,6 +94,16 @@ export type McpRouteDeps = {
   inspectAddress?: (addr: string) => Promise<unknown>;
   inspectTransaction?: (hash: string) => Promise<unknown>;
   quoteBridge?: (text: string, wallet: string) => Promise<unknown>;
+  statusBridge?: (
+    txHash: string,
+    fromChainId: number,
+  ) => Promise<{
+    status: string;
+    sendingTx: string | null;
+    receivingTx: string | null;
+    complete: boolean;
+    honesty: string;
+  }>;
   listSwapAssets?: () => Promise<unknown>;
   preflightSwap?: (input: {
     wallet: string;
@@ -978,7 +989,50 @@ async function runMcpTool(
     }
     return "Pass address (0x + 40 hex) or txHash (0x + 64 hex).";
   }
-  if (name === "bridge" || name === "quote_bridge" || name === "track_bridge") {
+  if (name === "track_bridge") {
+    const hash = extractBridgeTxHash(args);
+    if (!hash) {
+      return "Pass txHash (0x + 64 hex) and fromChainId (8453 Base or 1 Ethereum). Destination is complete only when LI.FI reports DONE with a dest tx.";
+    }
+    if (!deps.statusBridge) {
+      return "Bridge status is not wired on this API process.";
+    }
+    const fromChainId = extractBridgeFromChainId(args);
+    const st = await deps.statusBridge(hash, fromChainId);
+    const destOk = Boolean(st.complete && st.receivingTx);
+    const explorer = (deps.env.ZEROG_EXPLORER ?? "https://chainscan.0g.ai").replace(/\/$/, "");
+    if (deps.recordActivity) {
+      await deps.recordActivity(
+        grant.wallet,
+        "bridge",
+        destOk ? "MCP bridge destination" : `MCP bridge status ${st.status}`,
+        {
+          agent: grant.clientLabel,
+          session: grant.id,
+          tool: name,
+          wallet: grant.wallet,
+          safe: grant.safeAddress,
+          status: st.status,
+          complete: destOk,
+          sendingTx: st.sendingTx,
+          receivingTx: st.receivingTx,
+        },
+        destOk && st.receivingTx ? `${explorer}/tx/${st.receivingTx}` : undefined,
+        destOk ? st.receivingTx ?? undefined : hash,
+      );
+    }
+    return JSON.stringify(
+      {
+        ...st,
+        destinationComplete: destOk,
+        executableFromBeaconSafe: false,
+        proof: destOk && st.receivingTx ? `${explorer}/tx/${st.receivingTx}` : null,
+      },
+      null,
+      2,
+    );
+  }
+  if (name === "bridge" || name === "quote_bridge") {
     if (!deps.quoteBridge) {
       return "Bridge quotes are not wired on this API process.";
     }

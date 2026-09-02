@@ -292,12 +292,16 @@ export const MCP_TOOL_DEFS: McpToolDef[] = [
   },
   {
     name: "track_bridge",
-    description: "Re-quote / status for a live bridge. Destination is complete only when the dest tx exists.",
+    description:
+      "Track a source-chain bridge tx until LI.FI reports DONE with a destination tx. Never complete from the source hash alone. Pass txHash + fromChainId (8453 Base / 1 Ethereum), or a sentence that includes the hash.",
     scope: "exec:bridge",
     inputSchema: {
       type: "object",
-      properties: { text: { type: "string", minLength: 8, maxLength: 500 } },
-      required: ["text"],
+      properties: {
+        text: { type: "string", minLength: 8, maxLength: 500 },
+        txHash: { type: "string" },
+        fromChainId: { type: "number" },
+      },
       additionalProperties: false,
     },
   },

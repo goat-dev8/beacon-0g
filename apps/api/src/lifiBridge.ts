@@ -210,3 +210,19 @@ export async function statusLifiBridge(
 export function destinationComplete(st: { complete?: boolean; receivingTx?: string | null }): boolean {
   return st.complete === true && Boolean(st.receivingTx);
 }
+
+export function extractBridgeTxHash(args: { txHash?: unknown; text?: unknown }): string | null {
+  const direct = String(args.txHash ?? "");
+  if (/^0x[a-fA-F0-9]{64}$/.test(direct)) return direct;
+  const text = String(args.text ?? "");
+  const m = text.match(/0x[a-fA-F0-9]{64}/);
+  return m ? m[0] : null;
+}
+
+export function extractBridgeFromChainId(args: { fromChainId?: unknown; text?: unknown }): number {
+  const n = Number(args.fromChainId);
+  if (n === 1 || n === 8453) return n;
+  const text = String(args.text ?? "").toLowerCase();
+  if (/\bethereum\b|\beth\b/.test(text)) return 1;
+  return 8453;
+}
