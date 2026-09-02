@@ -100,8 +100,17 @@ export async function quoteLifiBridge(
   url.searchParams.set("toToken", intent.toToken);
   url.searchParams.set("fromAmount", intent.amountAtomic);
   url.searchParams.set("fromAddress", fromAddress);
-  const res = await fetchImpl(url.toString());
-  const body = (await res.json()) as Record<string, unknown>;
+
+  async function once() {
+    const res = await fetchImpl(url.toString());
+    const body = (await res.json()) as Record<string, unknown>;
+    return { res, body };
+  }
+  let { res, body } = await once();
+  if (!res.ok) {
+    await new Promise((r) => setTimeout(r, 400));
+    ({ res, body } = await once());
+  }
   if (!res.ok) {
     const msg =
       typeof body.message === "string"

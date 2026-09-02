@@ -745,8 +745,54 @@ export function ActionCard({
           {" → "}
           <span className="text-[var(--p-accent-text)]">~{est} {symbolOut}</span>
           {" · "}
-          {String(card.network ?? (isSafe ? "0G Aristotle Aristotle" : "0G Aristotle"))}
+          {String(card.network ?? "0G Aristotle")}
         </p>
+        <dl className="mt-3 grid gap-2 font-mono text-[11px] text-[var(--p-muted)] sm:grid-cols-2">
+          {card.route != null && (
+            <div>
+              <p>Route</p>
+              <p className="text-[var(--p-fg)]">{String(card.route)}</p>
+            </div>
+          )}
+          {card.fee != null && (
+            <div>
+              <p>Pool fee</p>
+              <p className="text-[var(--p-fg)]">{String(card.fee)}</p>
+            </div>
+          )}
+          {card.pool != null && (
+            <div>
+              <p>Pool</p>
+              <p className="break-all text-[var(--p-fg)]">{String(card.pool)}</p>
+            </div>
+          )}
+          {card.impactBps != null && (
+            <div>
+              <p>Price impact</p>
+              <p className="text-[var(--p-fg)]">{String(card.impactBps)} bps</p>
+            </div>
+          )}
+          {card.minReceived != null && (
+            <div>
+              <p>Min received</p>
+              <p className="text-[var(--p-fg)]">
+                {String(card.minReceived)} {symbolOut}
+              </p>
+            </div>
+          )}
+          {card.quotedAt != null && (
+            <div>
+              <p>Quote time</p>
+              <p className="text-[var(--p-fg)]">{String(card.quotedAt)}</p>
+            </div>
+          )}
+          {card.policyStatus != null && (
+            <div className="sm:col-span-2">
+              <p>Policy</p>
+              <p className="text-[var(--p-fg)]">{String(card.policyStatus)}</p>
+            </div>
+          )}
+        </dl>
         <p className="mt-1 text-xs text-[var(--p-muted)]">{String(card.warning)}</p>
         {card.honesty ? <p className="mt-1 text-xs text-amber-200/90">{String(card.honesty)}</p> : null}
         {!canExecute && card.executeBlock ? (

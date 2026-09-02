@@ -16,8 +16,8 @@ export const ZIA_QUOTER = "0x23b55293b7F06F6c332a0dDA3D88d8921218425B";
 
 /**
  * Bridged USDC (CCIP) on Aristotle.
- * Source: 0G research (PAY_RAILS, Chainlink token table, 4lpha Zia token list).
- * Not the unverified Ba19524 suffix. Override with ZEROG_USDCE at swap time.
+ * Source: 0G docs + Zia mainnet token list. Not the unverified Ba19524 suffix.
+ * Override with ZEROG_USDCE at swap time.
  */
 export const ZEROG_USDCE_CCIP = "0x1f3AA82227281cA364bFb3d253B0f1af1Da6473E";
 

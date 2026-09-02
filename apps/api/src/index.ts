@@ -21,7 +21,7 @@ import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } fr
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
-import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
+import { quoteExactIn, quoteZiaPair, buildSwapTx, listSwapAssets, findPoolFee, resolveZiaToken, parseSwapIntent, parseTokenAmount, formatTokenAmount } from "@beacon/swap";
 import {
   createSafeSessionChallenge,
   verifyChallengeAndIssueSession,
@@ -1990,10 +1990,39 @@ app.post("/v1/flow/chat", async (req) => {
         slippageBps: 100,
       });
       const outTok = resolveZiaToken(quote.tokenOut);
-      const estimatedOut = formatTokenAmount(quote.amountOut, outTok?.docsDecimals ?? (quote.tokenOutSymbol === "0G" ? 18 : 6));
+      const outDecimals = outTok?.docsDecimals ?? (quote.tokenOutSymbol === "0G" ? 18 : 6);
+      const estimatedOut = formatTokenAmount(quote.amountOut, outDecimals);
+      const minReceived = formatTokenAmount(quote.minOut, outDecimals);
+      let pool: string | null = null;
+      try {
+        const hit = await findPoolFee(
+          async (tx) => provider.call({ to: tx.to, data: tx.data }),
+          env.ZIA_FACTORY,
+          quote.tokenIn,
+          quote.tokenOut,
+        );
+        pool = hit?.pool ?? null;
+      } catch {
+        pool = null;
+      }
+      let policyStatus = "Connect a wallet to check Beacon Safe policy.";
+      if (body.wallet) {
+        const safe = await resolveSafe(getAddress(body.wallet));
+        if (!safe) {
+          policyStatus = "No Beacon Safe yet. Open Safe before executing.";
+        } else {
+          const [maxTx] = await vaultView(safe, "maxSpendPerTx");
+          const requested = quote.wrapNative ? quote.amountIn : 0n;
+          policyStatus =
+            quote.executableFromSafe && requested > 0n && requested > (maxTx as bigint)
+              ? `Would DENY: ${format0g(requested)} exceeds per-tx cap ${format0g(maxTx as bigint)}.`
+              : `Per-tx cap ${format0g(maxTx as bigint)}. ${quote.executableFromSafe ? "Executable from Safe if TeeML ALLOW." : "Quote only — Safe cannot execute this direction."}`;
+        }
+      }
+      const quotedAt = new Date().toISOString();
       return {
         reply: quote.executableFromSafe
-          ? `Zia quote for ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. Wrap/approve/exactInputSingle. Recipient is your Beacon Safe.`
+          ? `Zia quote for ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. Pool fee ${quote.fee}. Impact ${quote.impactBps} bps. Min ${minReceived} ${quote.tokenOutSymbol}.`
           : `Live quote ${intent.amount} ${quote.tokenInSymbol} → ${quote.tokenOutSymbol}. ${quote.executeBlock}`,
         quote: {
           amountOut: quote.amountOut.toString(),
@@ -2009,6 +2038,7 @@ app.post("/v1/flow/chat", async (req) => {
             title: "Zia swap",
             amountInDisplay: intent.amount,
             estimatedOut,
+            minReceived,
             symbolIn: quote.tokenInSymbol,
             symbolOut: quote.tokenOutSymbol,
             tokenIn: quote.tokenInSymbol,
@@ -2017,6 +2047,12 @@ app.post("/v1/flow/chat", async (req) => {
             executeBlock: quote.executeBlock,
             chainId: env.CHAIN_ID,
             slippageBps: 100,
+            fee: quote.fee,
+            pool,
+            impactBps: quote.impactBps,
+            quotedAt,
+            policyStatus,
+            route: `exactInputSingle ${quote.tokenInSymbol}→${quote.tokenOutSymbol} fee ${quote.fee}`,
             warning: quote.executableFromSafe
               ? "Unlock Beacon Agent if the session is locked. Thin books are refused before funds move."
               : quote.executeBlock,
@@ -2046,8 +2082,19 @@ app.post("/v1/flow/chat", async (req) => {
   }
   if (/cheap(er|est)?/.test(text)) {
     const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
+    const last = await lastJobForWallet(body.wallet);
     const quote = quoteJob(catalog, { task: "cheap", briefText: body.text });
     quotes.set(quote.quoteId, quote);
+    const image = quoteJob(catalog, { task: "image", briefText: "x", imageCount: 1 });
+    const lastLine = last
+      ? `Last job ${last.quote.modelId} locked ${format0g(last.quote.lock0g)} (${last.task}).`
+      : "No previous job on file.";
+    const cheaperThanLast =
+      last && last.task !== "image" && quote.lock0g < last.quote.lock0g
+        ? `This lock is lower than the last chat job.`
+        : last?.task === "image"
+          ? `Image stays on ${image.modelId} at ${format0g(image.lock0g)}; cheaper applies to chat/research.`
+          : `Live cheapest verified chat: ${quote.modelId}.`;
     const job = await createQuotedJob({
       wallet: body.wallet,
       task: "cheap",
@@ -2056,10 +2103,15 @@ app.post("/v1/flow/chat", async (req) => {
       serviceId: "research",
     });
     return {
-      reply: `Cheaper route: ${quote.modelId}. Lock ${format0g(quote.lock0g)}.`,
+      reply: `${cheaperThanLast} ${lastLine} Compute ${format0g(quote.modelCost0g)} · Storage ${format0g(quote.storage0g)} · Beacon fee ${format0g(quote.service0g)} · Total ${format0g(quote.lock0g)}.`,
       quote: serializeQuote(quote),
       cards: [
-        { type: "quote", unit: "0G", title: "Cheap catalog quote", summary: `${quote.modelId} · ${format0g(quote.lock0g)}` },
+        {
+          type: "quote",
+          unit: "0G",
+          title: "Cheap catalog quote",
+          summary: `${quote.modelId} · ${quote.verifiability} · ${format0g(quote.lock0g)}`,
+        },
         ...jobStayCards(job, "Start cheaper job", "Escrow native 0G then run Compute. Stay in this chat."),
       ],
     };
@@ -2079,7 +2131,7 @@ app.post("/v1/flow/chat", async (req) => {
     reply: `Quote in 0G. Model ${quote.modelId}. Approve to lock ${format0g(quote.lock0g)}.`,
     quote: serializeQuote(quote),
     cards: [
-      { type: "quote", unit: "0G", title: "Quote in native 0G", summary: `${quote.modelId} · lock ${format0g(quote.lock0g)}` },
+      { type: "quote", unit: "0G", title: "Quote in native 0G", summary: `${quote.modelId} · compute ${format0g(quote.modelCost0g)} · storage ${format0g(quote.storage0g)} · fee ${format0g(quote.service0g)} · total ${format0g(quote.lock0g)}` },
       ...jobStayCards(
         job,
         task === "image" ? "Start image job" : "Start research job",
