@@ -52,8 +52,15 @@ export function VerifyPage() {
 
   const job = data?.job;
   const onchain = data?.onchain ?? null;
-  const storageRoot = job?.storageRoot || onchain?.storageRoot || null;
+  const storageRoot = onchain?.storageRoot || job?.storageRoot || null;
   const storageScan = job?.storageScan || (storageRoot ? `https://storagescan.0g.ai` : null);
+  const policyLabel = onchain
+    ? onchain.allowed
+      ? "ALLOW (on-chain registry)"
+      : "DENY (on-chain registry)"
+    : job?.tee?.allow
+      ? "TeeML ALLOW claimed by API — not on-chain yet"
+      : job?.tee?.reason || job?.denial || undefined;
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-16 text-[var(--p-fg,#e8efe9)]">
@@ -62,8 +69,8 @@ export function VerifyPage() {
       </p>
       <h1 className="mt-2 font-display text-4xl font-extrabold tracking-tight">Job proof</h1>
       <p className="mt-2 text-sm text-[var(--p-muted,#9a96a8)]">
-        No wallet required. Chain {data?.chainId ?? 16661} · Aristotle. On-chain receipt is
-        authoritative.
+        No wallet required. Chain {data?.chainId ?? 16661} · Aristotle. The receipt registry on
+        chain is authoritative — API fields alone are not a pass.
       </p>
       {err && <p className="mt-6 text-sm text-red-400">{err}</p>}
       {!err && !job && !onchain && (
@@ -75,18 +82,7 @@ export function VerifyPage() {
           <Row label="Status" value={job?.status ?? (onchain?.exists ? "on-chain" : undefined)} />
           <Row label="Model" value={job?.quote?.modelId} />
           <Row label="Lock" value={job?.quote?.lock0gDisplay} />
-          <Row
-            label="Policy"
-            value={
-              onchain
-                ? onchain.allowed
-                  ? "ALLOW (registry)"
-                  : "DENY (registry)"
-                : job?.tee?.allow
-                  ? "ALLOW"
-                  : job?.tee?.reason
-            }
-          />
+          <Row label="Policy" value={policyLabel} />
           <Row
             label="Lock tx"
             value={job?.lockTx}

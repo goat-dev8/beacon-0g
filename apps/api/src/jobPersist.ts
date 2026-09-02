@@ -11,7 +11,7 @@ const BIGINT_KEYS = [
   "lock0g",
 ] as const;
 
-const IMAGE_B64_MAX = 80_000;
+const IMAGE_B64_MAX = 2_000_000;
 
 export function serializeQuote(quote: JobQuote): Record<string, unknown> {
   const row: Record<string, unknown> = { ...quote };

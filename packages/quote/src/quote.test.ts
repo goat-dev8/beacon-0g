@@ -55,6 +55,13 @@ describe("selectModel", () => {
     expect(selectModel(catalog(), "stt").id).toBe("whisper-large-v3");
     expect(selectModel(catalog(), "video").id).toBe("bytedance/seedance-2.5");
   });
+
+  it("does not send image models to TeeML policy review", () => {
+    const policy = selectModel(catalog(), "policy");
+    const image = selectModel(catalog(), "image");
+    expect(policy.id).not.toBe(image.id);
+    expect(policy.id).not.toMatch(/image|turbo|whisper|seedance/i);
+  });
 });
 
 describe("quoteJob neurons", () => {

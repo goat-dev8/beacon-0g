@@ -17,7 +17,7 @@ import {
   parse0g,
   transition,
 } from "@beacon/shared";
-import { fetchCatalog, quoteJob, type JobQuote, type ModelTask } from "@beacon/quote";
+import { fetchCatalog, quoteJob, selectModel, type JobQuote, type ModelTask } from "@beacon/quote";
 import { chatCompletions, createComputeBroker, ensureLedgerBalance, type ComputeBroker } from "@beacon/compute";
 import { reviewIntent } from "@beacon/tee";
 import { putEvidence } from "@beacon/storage";
@@ -299,6 +299,21 @@ async function createQuotedJob(input: {
   emitEvent(job, "quoted", { model: quote.modelId, lock0g: format0g(quote.lock0g) });
   await persistJob(job);
   return job;
+}
+
+async function policyTeeSpec() {
+  const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
+  const selected = selectModel(catalog, "policy");
+  if (/image|whisper|seedance|turbo/i.test(selected.id)) {
+    throw new AppError("TEE_DENIED", {
+      message: "Policy review requires a chat TeeML model, not the job's image model.",
+    });
+  }
+  return {
+    model: selected.id,
+    providerAddress: selected.address || undefined,
+    trustMode: selected.trustMode,
+  };
 }
 
 async function requireEscrow(): Promise<string> {
@@ -637,15 +652,16 @@ app.post("/v1/jobs/:id/review", async (req) => {
   const job = await getJob(id);
   if (!job) throw new AppError("JOB_NOT_FOUND");
   const broker = await requireBroker();
+  const policy = await policyTeeSpec();
   const tee = await reviewIntent(
     {
       userText: job.brief,
       tool: job.task,
       amount0g: format0g(job.quote.lock0g),
       target: env.BEACON_JOB_ESCROW || "escrow",
-      model: job.quote.modelId,
-      providerAddress: job.quote.providerAddress || undefined,
-      trustMode: job.quote.selected.trustMode,
+      model: policy.model,
+      providerAddress: policy.providerAddress,
+      trustMode: policy.trustMode,
     },
     { env, broker },
   );
@@ -654,6 +670,7 @@ app.post("/v1/jobs/:id/review", async (req) => {
     job.status = JobStatus.FAILED;
     job.denial = tee.reason;
   }
+  await persistJob(job);
   return serializeJob(job);
 });
 
@@ -668,6 +685,7 @@ app.post("/v1/jobs/:id/lock", async (req) => {
   job.lockTx = body.lockTx;
   job.status = transition(job.status as typeof JobStatus.QUOTED, "user_approve");
   emitEvent(job, "locked", { tx: job.lockTx });
+  await persistJob(job);
   return deskView(job);
 });
 
@@ -676,6 +694,31 @@ async function runLockedJob(job: StoredJob): Promise<StoredJob> {
     throw new AppError("PAYMENT_REQUIRED", { message: "Lock native 0G in BeaconJobEscrow first." });
   }
   try {
+    if (!job.tee) {
+      const policy = await policyTeeSpec();
+      const broker = await requireBroker();
+      job.tee = await reviewIntent(
+        {
+          userText: job.brief,
+          tool: job.task,
+          amount0g: format0g(job.quote.lock0g),
+          target: env.BEACON_JOB_ESCROW || "escrow",
+          model: policy.model,
+          providerAddress: policy.providerAddress,
+          trustMode: policy.trustMode,
+        },
+        { env, broker },
+      );
+      await persistJob(job);
+      if (!job.tee.allow) {
+        job.status = JobStatus.FAILED;
+        job.denial = job.tee.reason;
+        emitEvent(job, "denied", { reason: job.tee.reason });
+        throw new AppError("TEE_DENIED", { message: job.tee.reason });
+      }
+    } else if (!job.tee.allow) {
+      throw new AppError("TEE_DENIED", { message: job.tee.reason });
+    }
     job.status = JobStatus.GENERATING;
     emitEvent(job, "thinking", { text: `Running ${job.quote.modelId} on 0G Compute.` });
     const broker = await requireBroker();
@@ -793,15 +836,16 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
   try {
     if (!job.tee) {
       const broker = await requireBroker();
+      const policy = await policyTeeSpec();
       job.tee = await reviewIntent(
         {
           userText: job.brief,
           tool: job.task,
           amount0g: format0g(job.quote.lock0g),
           target: env.BEACON_JOB_ESCROW || "escrow",
-          model: job.quote.modelId,
-          providerAddress: job.quote.providerAddress || undefined,
-          trustMode: job.quote.selected.trustMode,
+          model: policy.model,
+          providerAddress: policy.providerAddress,
+          trustMode: policy.trustMode,
         },
         { env, broker },
       );
@@ -819,8 +863,10 @@ async function pipelineAfterLock(job: StoredJob): Promise<void> {
           job.refundTx = tx.hash;
           job.status = JobStatus.CLOSED;
         }
+        await persistJob(job);
         return;
       }
+      await persistJob(job);
     }
     await runLockedJob(job);
     await releasePassedJob(job);

@@ -46,7 +46,7 @@ describe("job persistence", () => {
     const job = {
       id: "job-1",
       quote,
-      imageB64: "a".repeat(90_000),
+      imageB64: "a".repeat(2_000_001),
       status: "QUOTED",
     };
     const stored = serializeJob(job);
@@ -54,5 +54,15 @@ describe("job persistence", () => {
     const hydrated = hydrateJob<typeof job>(JSON.parse(JSON.stringify(stored)) as Record<string, unknown>);
     expect(hydrated.id).toBe("job-1");
     expect(hydrated.quote.lock0g).toBe(quote.lock0g);
+  });
+
+  it("keeps a typical generated image so the desk can restore it", () => {
+    const job = {
+      id: "job-2",
+      quote,
+      imageB64: "a".repeat(120_000),
+      status: "PASSED",
+    };
+    expect(serializeJob(job).imageB64).toHaveLength(120_000);
   });
 });
