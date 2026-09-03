@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JsonRpcProvider } from "ethers";
 import { assertZeroGRequired, CHAIN_ID, loadEnv, resetEnvCache } from "@beacon/shared";
-import { fetchCatalog } from "@beacon/quote";
+import { fetchCatalog, selectModel } from "@beacon/quote";
 
 config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../.env") });
 resetEnvCache();
@@ -48,8 +48,16 @@ for (const [name, addr] of Object.entries({
 }
 
 const catalog = await fetchCatalog(env.ZEROG_ROUTER_URL);
-if (!catalog.models.some((m) => m.canonical_id === "glm-5.2")) {
-  console.error("glm-5.2 missing from live catalog");
+const policy = selectModel(catalog, "policy");
+const glm53Tee = catalog.models.find(
+  (m) => m.canonical_id === "glm-5.3" && m.verifiability.toLowerCase() === "teeml",
+);
+if (!glm53Tee) {
+  console.error("TeeML glm-5.3 missing from live catalog");
+  process.exit(1);
+}
+if (policy.id !== "glm-5.3" || policy.verifiability.toLowerCase() !== "teeml") {
+  console.error("policy model is not TeeML glm-5.3", policy.id, policy.verifiability);
   process.exit(1);
 }
 
@@ -60,6 +68,8 @@ console.log(
     ethChainId: hex,
     models: catalog.models.length,
     catalogHash: catalog.catalogHash,
+    policyModel: policy.id,
+    policyVerifiability: policy.verifiability,
     computeKey: Boolean(env.COMPUTE_API_KEY),
     escrow: env.BEACON_JOB_ESCROW,
   }),

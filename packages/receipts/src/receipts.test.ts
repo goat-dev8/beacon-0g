@@ -12,7 +12,7 @@ describe("0G receipts", () => {
         rubricHash: "0x02",
         quoteHash: "0xabc",
         amount0g: "13000000000000000",
-        modelId: "glm-5.2",
+        modelId: "glm-5.3",
       },
       accept: {
         acceptId: "acc-1",

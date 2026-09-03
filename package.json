@@ -35,6 +35,7 @@
     "smoke:job-loop": "tsx scripts/smoke-job-loop.ts",
     "validate:production": "tsx scripts/validate-production.ts",
     "smoke:production": "tsx scripts/smoke-production.ts",
+    "smoke:policy-glm": "tsx scripts/smoke-policy-glm.ts",
     "api": "tsx apps/api/src/index.ts",
     "settler": "tsx services/settler/src/index.ts",
     "web": "npm run dev -w @beacon/web"

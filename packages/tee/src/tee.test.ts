@@ -26,7 +26,7 @@ describe("reviewIntent", () => {
         tool: "swap",
         amount0g: "2",
         target: "0x18cCa38E51c4C339A6BD6e174025f08360FEEf30",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -61,7 +61,7 @@ describe("reviewIntent", () => {
         tool: "swap",
         amount0g: "2",
         target: "0x18cCa38E51c4C339A6BD6e174025f08360FEEf30",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -96,7 +96,7 @@ describe("reviewIntent", () => {
         tool: "cheap",
         amount0g: "0.001",
         target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -128,7 +128,7 @@ describe("reviewIntent", () => {
         tool: "infer",
         amount0g: "0.01",
         target: "0x47340d900bdFec2BD393c626E12ea0656F938d84",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -181,7 +181,7 @@ describe("reviewIntent", () => {
         tool: "infer",
         amount0g: "0.01",
         target: "0x47340d900bdFec2BD393c626E12ea0656F938d84",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -233,7 +233,7 @@ describe("reviewIntent", () => {
         tool: "cheap",
         amount0g: "0.001",
         target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -286,7 +286,7 @@ describe("reviewIntent", () => {
         tool: "cheap",
         amount0g: "0.001",
         target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -338,7 +338,7 @@ describe("reviewIntent", () => {
         tool: "cheap",
         amount0g: "0.001",
         target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -388,7 +388,7 @@ describe("reviewIntent", () => {
         tool: "swap",
         amount0g: "5",
         target: "0x000000000000000000000000000000000000dEaD",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,
@@ -429,7 +429,7 @@ describe("reviewIntent", () => {
         tool: "cheap",
         amount0g: "0.001",
         target: "0xFB9c10423EAaD015dDb04f5aC85273f1B3F7A566",
-        model: "glm-5.2",
+        model: "glm-5.3",
       },
       {
         env,

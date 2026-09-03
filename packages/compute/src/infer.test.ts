@@ -11,7 +11,7 @@ describe("chatCompletions router client", () => {
     let captured: RequestInit | undefined;
     const result = await chatCompletions(
       {
-        model: "glm-5.2",
+        model: "glm-5.3",
         messages: [{ role: "user", content: "ping" }],
         trustMode: "private",
       },
@@ -22,7 +22,7 @@ describe("chatCompletions router client", () => {
           return new Response(
             JSON.stringify({
               id: "chatcmpl-1",
-              model: "glm-5.2",
+              model: "glm-5.3",
               choices: [{ message: { role: "assistant", content: "{\"ok\":true}" } }],
               usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
             }),
@@ -54,7 +54,7 @@ describe("chatCompletions router client", () => {
     const provider = "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D";
     const result = await chatCompletions(
       {
-        model: "glm-5.2",
+        model: "glm-5.3",
         messages: [{ role: "user", content: "ping" }],
         trustMode: "private",
       },
@@ -64,7 +64,7 @@ describe("chatCompletions router client", () => {
           new Response(
             JSON.stringify({
               id: "req-trace-1",
-              model: "glm-5.2",
+              model: "glm-5.3",
               choices: [{ message: { role: "assistant", content: "ok" } }],
               usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
               x_0g_trace: { request_id: "req-trace-1", provider, tee_verified: true },
@@ -83,7 +83,7 @@ describe("chatCompletions router client", () => {
     const env = loadEnv({ COMPUTE_API_KEY: "" });
     await expect(
       chatCompletions(
-        { model: "glm-5.2", messages: [{ role: "user", content: "x" }], trustMode: "private" },
+        { model: "glm-5.3", messages: [{ role: "user", content: "x" }], trustMode: "private" },
         { env, fetchImpl: async () => new Response("no", { status: 500 }) },
       ),
     ).rejects.toThrow(/COMPUTE_API_KEY/);

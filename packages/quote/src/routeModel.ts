@@ -14,6 +14,9 @@ export type SelectedModel = {
 
 const UNVERIFIED = /^(claude|gpt)/i;
 
+/** Official GLM 5.2→5.3 TeeML/Private provider. Live Router /v1/models omits `address`. */
+export const GLM53_TEEML_PROVIDER = "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D";
+
 function supports(model: RouterModel, param: string): boolean {
   return (model.supported_parameters ?? []).some((p) => p.toLowerCase() === param.toLowerCase());
 }
@@ -68,9 +71,13 @@ function cheapestChat(catalog: ModelCatalog, pred: (m: RouterModel) => boolean):
 
 function selected(model: RouterModel, reason: string): SelectedModel {
   const trustMode: "private" | "verified" = isTeeMl(model) ? "private" : "verified";
+  const catalogAddr = model.address?.trim() ?? "";
+  const address =
+    catalogAddr ||
+    (isTeeMl(model) && model.canonical_id.toLowerCase() === "glm-5.3" ? GLM53_TEEML_PROVIDER : "");
   return {
     id: model.canonical_id,
-    address: model.address,
+    address,
     reason,
     verifiability: model.verifiability,
     trustMode,
@@ -81,14 +88,14 @@ function selected(model: RouterModel, reason: string): SelectedModel {
 export function selectModel(catalog: ModelCatalog, task: ModelTask): SelectedModel {
   if (task === "policy") {
     const model =
-      pickByIds(catalog, ["glm-5.2"], (m) => isTeeMl(m) && (supports(m, "tools") || supports(m, "response_format"))) ??
+      pickByIds(catalog, ["glm-5.3"], (m) => isTeeMl(m) && (supports(m, "tools") || supports(m, "response_format"))) ??
       catalog.models.find((m) => isTeeMl(m) && supports(m, "tools") && supports(m, "response_format") && !isFrontierUnverified(m));
     if (!model) {
       throw new AppError("NO_FIT", {
         message: "No TeeML tools+JSON model is in the catalog for policy review.",
       });
     }
-    return selected(model, "TeeML glm-5.2 (tools+JSON) for Layer 2 policy");
+    return selected(model, "TeeML glm-5.3 (tools+JSON) for Layer 2 policy");
   }
 
   if (task === "cheap") {

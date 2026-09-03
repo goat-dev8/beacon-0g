@@ -31,16 +31,27 @@ describe("catalog", () => {
         headers: { "content-type": "application/json" },
       });
     });
-    expect(fetched.models.some((m) => m.canonical_id === "glm-5.2")).toBe(true);
+    expect(fetched.models.some((m) => m.canonical_id === "glm-5.3" && m.verifiability === "TeeML")).toBe(true);
   });
 });
 
 describe("selectModel", () => {
-  it("picks TeeML glm-5.2 for policy and never gpt", () => {
+  it("picks TeeML glm-5.3 for policy and never TeeTLS glm-5.2 or gpt", () => {
     const s = selectModel(catalog(), "policy");
-    expect(s.id).toBe("glm-5.2");
+    expect(s.id).toBe("glm-5.3");
     expect(s.verifiability).toBe("TeeML");
     expect(s.trustMode).toBe("private");
+    expect(s.id).not.toBe("glm-5.2");
+  });
+
+  it("pins TeeML glm-5.3 provider when the catalog omits address", () => {
+    const base = catalog();
+    const models = base.models.map((m) =>
+      m.canonical_id === "glm-5.3" && m.verifiability === "TeeML" ? { ...m, address: "" } : m,
+    );
+    const s = selectModel({ ...base, models }, "policy");
+    expect(s.id).toBe("glm-5.3");
+    expect(s.address.toLowerCase()).toBe("0x7dcfe6aea70350c2090041524c9b4a9262dce87d");
   });
 
   it("picks cheap flash before gpt", () => {
@@ -82,7 +93,7 @@ describe("quoteJob neurons", () => {
       env,
     );
     const expectedModel =
-      5490000000000n * 1000n + 18300000000000n * 500n;
+      4900000000000n * 1000n + 16330000000000n * 500n;
     expect(q.modelCost0g).toBe(expectedModel);
     expect(q.service0g).toBe((expectedModel * 500n) / 10_000n);
     expect(q.total0g).toBe(q.modelCost0g + q.computeBuffer0g + q.storage0g + q.service0g);

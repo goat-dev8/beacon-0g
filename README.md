@@ -34,18 +34,15 @@ Native 0G: [get.0g.ai](https://get.0g.ai/). Network: **0G Aristotle**, chain id 
 
 Unlock once. Then Flow and Jobs can lock from the Safe inside policy. Pause anytime. Withdraw anytime.
 
-```mermaid
-flowchart LR
-  W[Connect wallet on 16661] --> S[Create Beacon Safe]
-  S --> D[Deposit native 0G]
-  D --> U[Unlock agent session]
-  U --> P[Set policy]
-  P --> F[Flow]
-  P --> J[Jobs]
-  P --> M[MCP Agents]
-  F --> V[Verify]
-  J --> V
-  M --> V
+```
+Connect wallet on 16661
+  → Create Beacon Safe
+  → Deposit native 0G
+  → Unlock agent session
+  → Set policy
+      → Flow  ─┐
+      → Jobs  ─┼→ Verify
+      → MCP   ─┘
 ```
 
 ## Product map
@@ -195,7 +192,7 @@ Without Compute, Beacon cannot run policy review or inference on 0G GPUs. There 
 
 ### Private / TeeML
 
-Policy review uses a TeeML tools+JSON model (`glm-5.2` when present in the catalog). Independent verification is on-chain `getService` plus provider `/v1/proxy/signature/{chatID}` recovered as EIP-191 against the TEE signer. Missing `ZG-Res-Key` / `chatID` is DENY (`TEE_FAIL_CLOSED=true`).
+Policy review uses a TeeML tools+JSON model (`glm-5.3` when present in the catalog). Independent verification is on-chain `getService` plus provider `/v1/proxy/signature/{chatID}` recovered as EIP-191 against the TEE signer. Missing `ZG-Res-Key` / `chatID` is DENY (`TEE_FAIL_CLOSED=true`).
 
 Router `x_0g_trace` / `tee_verified` is persisted on `/verify` as **what the Router reported**, with a locally computed `claimHash`. That is not a substitute for EIP-191 recover.
 
@@ -231,22 +228,22 @@ Without Aristotle cheap settlement, every job would need its own expensive attes
 
 ## Product story
 
-```mermaid
-flowchart TD
-  U[User / External Agent] --> F[Beacon Flow / MCP]
-  F --> P[Policy + MCP grant]
-  P --> PF[Deterministic preflight + eth_call]
-  PF --> T[TeeML + EIP-191]
-  T --> S[Beacon Safe]
-  S --> E[BeaconJobEscrow lockNative]
-  E --> C[0G Compute Router]
-  C --> ST[0G Storage turbo]
-  ST --> X[Zia / LI.FI / inspect]
-  X --> SET[Release or Refund]
-  SET --> R[ReceiptRegistry]
-  R --> A[Action hash + EvidenceAnchor]
-  A --> V["/verify/:jobId"]
-  V --> REP[ERC-8004 giveFeedback]
+```
+User / External Agent
+  → Beacon Flow / MCP
+  → Policy + MCP grant
+  → Deterministic preflight + eth_call
+  → TeeML + EIP-191
+  → Beacon Safe
+  → BeaconJobEscrow lockNative
+  → 0G Compute Router
+  → 0G Storage turbo
+  → Zia / LI.FI / inspect
+  → Release or Refund
+  → ReceiptRegistry
+  → Action hash + EvidenceAnchor
+  → /verify/:jobId
+  → ERC-8004 giveFeedback
 ```
 
 An external agent with a Bearer grant can quote, inspect, infer, swap, and request a bridge. It cannot export `SETTLER_PRIVATE_KEY` or the Safe owner key. If the grant is revoked, existing tokens stop. If the Safe is paused, the executor cannot spend. If preflight or TeeML DENY, escrow is refunded (or never locked). Funds moved on a denied unconstrained transfer is **0 0G**.
@@ -303,119 +300,83 @@ An external agent with a Bearer grant can quote, inspect, infer, swap, and reque
 
 ### 1. Overall architecture
 
-```mermaid
-flowchart LR
-  subgraph In["Intent"]
-    U[User]
-    A[MCP client]
-  end
-  subgraph Desk["Beacon"]
-    F[Flow]
-    M[MCP]
-    POL[Policy]
-    PRE[Preflight]
-    TEE[TeeML]
-    SAFE[Beacon Safe]
-    ESC[Job Escrow]
-  end
-  subgraph OG["0G"]
-    CMP[Compute]
-    STO[Storage]
-    CH[Aristotle]
-    ZIA[Zia]
-  end
-  subgraph Out["Proof"]
-    REC[Receipt]
-    PRF[Action hash]
-    REP[ERC-8004]
-  end
-  U --> F
-  A --> M
-  F --> POL
-  M --> POL
-  POL --> PRE --> TEE --> SAFE --> ESC
-  ESC --> CMP --> STO
-  SAFE --> ZIA
-  SAFE --> CH
-  STO --> REC --> PRF --> REP
+```
+Intent: User → Flow
+        MCP client → MCP
+Beacon: Flow / MCP → Policy → Preflight → TeeML → Beacon Safe → Job Escrow
+0G:     Job Escrow → Compute → Storage
+        Beacon Safe → Zia
+        Beacon Safe → Aristotle
+Proof:  Storage → Receipt → Action hash → ERC-8004
 ```
 
 ### 2. Job lifecycle
 
-```mermaid
-sequenceDiagram
-  participant U as User or MCP
-  participant Q as Quote catalog
-  participant P as Policy plus TeeML
-  participant S as Beacon Safe
-  participant E as JobEscrow
-  participant C as 0G Compute
-  participant ST as 0G Storage
-  participant R as ReceiptRegistry
-  U->>Q: GET router-api.0g.ai/v1/models
-  Q-->>U: neurons lock in native 0G
-  U->>P: preflight plus EIP-191
-  P-->>S: ALLOW
-  S->>E: lockNative
-  E->>C: chat or z-image-turbo
-  C->>ST: encrypted evidence upload
-  ST-->>R: storageRoot
-  E->>E: release or refund
-  R-->>U: /verify jobId
+```
+User or MCP
+  → GET router-api.0g.ai/v1/models
+  → neurons lock in native 0G
+  → preflight plus EIP-191
+  → ALLOW
+  → Beacon Safe lockNative
+  → 0G Compute (chat or z-image-turbo)
+  → 0G Storage encrypted evidence
+  → storageRoot on ReceiptRegistry
+  → release or refund
+  → /verify jobId
 ```
 
 ### 3. MCP
 
-```mermaid
-flowchart TD
-  C[Claude / Cursor / MCP client] -->|Bearer or OAuth PKCE| M[Beacon MCP]
-  M --> G[Scoped grant TTL plus caps]
-  G --> P[Policy plus preflight]
-  P --> S[Beacon Safe executor]
-  S --> OG[0G Compute Storage Zia]
-  OG --> TX[Aristotle transaction]
-  TX --> PR[verify_job plus History]
-  note right of S: The agent never receives the private key
+```
+Claude / Cursor / MCP client
+  → Bearer or OAuth PKCE
+  → Beacon MCP
+  → Scoped grant (TTL + caps you choose)
+  → Policy plus preflight
+  → Beacon Safe executor
+  → 0G Compute / Storage / Zia
+  → Aristotle transaction
+  → verify_job plus History
+
+The agent never receives the private key.
 ```
 
 ### 4. Swap
 
-```mermaid
-flowchart TD
-  I[Intent 0G to USDC] --> Q[Live Zia QuoterV2]
-  Q --> PF[Preflight plus policy]
-  PF --> W[W0G.deposit]
-  W --> A[W0G.approve SwapRouter]
-  A --> X[exactInputSingle]
-  X --> S[Safe wealth native plus W0G]
-  S --> H[History plus explorer]
+```
+Intent 0G → USDC
+  → Live Zia QuoterV2
+  → Preflight plus policy
+  → W0G.deposit
+  → W0G.approve SwapRouter
+  → exactInputSingle
+  → Safe wealth (native + W0G)
+  → History plus explorer
 ```
 
 ### 5. Bridge
 
-```mermaid
-flowchart TD
-  I[Directional intent] --> L[GET li.quest/v1/quote]
-  L --> W[Unsigned tx for user wallet]
-  W --> SRC[Source chain signature]
-  SRC --> D[Destination 0G or Base]
-  D --> T[track_bridge DONE plus dest tx plus same source hash]
-  SAFE[Beacon Safe on 16661] -.->|cannot sign source chain| SRC
+```
+Directional intent
+  → GET li.quest/v1/quote
+  → Unsigned tx for user wallet
+  → Source chain signature
+  → Destination 0G or Base
+  → track_bridge DONE + dest tx + same source hash
 ```
 
 Beacon Safe lives on Aristotle. It cannot sign Ethereum, Base, or any other source-chain bridge transaction.
 
 ### 6. Evidence / proof
 
-```mermaid
-flowchart TD
-  I[Intent plus quote plus TEE] --> H[actionHash keccak256 abi.encode]
-  H --> ST[0G Storage evidence packet]
-  H --> M[Merkle root]
-  M --> A[BeaconEvidenceAnchor.anchor]
-  ST --> V[Verifier /verify]
-  A --> V
-  V --> R[ReceiptRegistry eth_call]
+```
+Intent plus quote plus TEE
+  → actionHash keccak256(abi.encode)
+  → 0G Storage evidence packet
+  → Merkle root → BeaconEvidenceAnchor.anchor
+  → /verify
+  → ReceiptRegistry eth_call
 ```
 
 ## Contracts + deployments
@@ -466,7 +427,7 @@ Owner / demo wallet (public address): `0x18398aA1dFdA63F30529c46E90ac41c1E75F7Ec
 
 **What it does.** Decentralized GPU marketplace. Router is a single `chat/completions` endpoint with catalog pricing in neurons. [Compute docs](https://docs.0g.ai/developer-hub/building-on-0g/compute-network/overview).
 
-**How Beacon uses it.** `GET https://router-api.0g.ai/v1/models` (32 models on the live API at documentation time). `selectModel` picks TeeML `glm-5.2` for policy, catalog cheap TeeTLS/TeeML for infer/research (`qwen3.8-flash` on proven jobs), `z-image-turbo` for image.
+**How Beacon uses it.** `GET https://router-api.0g.ai/v1/models` (32 models on the live API at documentation time). `selectModel` picks TeeML `glm-5.3` for policy, catalog cheap TeeTLS/TeeML for infer/research (`qwen3.8-flash` on proven jobs), `z-image-turbo` for image.
 
 **Why it matters.** Job cost is 0G, not a card network. The same asset the Safe holds is the asset Compute bills.
 
@@ -510,7 +471,7 @@ Owner / demo wallet (public address): `0x18398aA1dFdA63F30529c46E90ac41c1E75F7Ec
 
 **Why it matters.** A disappeared model cannot be silently replaced by a banned cloud vendor; `NO_FIT` throws.
 
-**Proof.** Health + models on [https://beacon-0g-api.onrender.com/health](https://beacon-0g-api.onrender.com/health). Proven ids: `qwen3.8-flash`, `glm-5.2` (policy), `z-image-turbo`.
+**Proof.** Health + models on [https://beacon-0g-api.onrender.com/health](https://beacon-0g-api.onrender.com/health). Proven ids: `qwen3.8-flash`, `glm-5.3` (policy, TeeML/Private), `z-image-turbo`.
 
 ## Native 0G pricing
 
@@ -578,7 +539,7 @@ Selection is live from `GET https://router-api.0g.ai/v1/models` via `packages/qu
 
 | Model | Purpose | Route | Pricing | Where used |
 |---|---|---|---|---|
-| `glm-5.2` | Layer-2 policy ALLOW/DENY (tools+JSON) | TeeML | catalog neurons | Policy review before spend |
+| `glm-5.3` | Layer-2 policy ALLOW/DENY (tools+JSON) | TeeML / Private | catalog neurons | Policy review before spend |
 | `qwen3.8-flash` | Cheap infer / research / analysis | TeeTLS (catalog) | catalog neurons; hosted lock `0.001 0G` | Flow cheaper jobs, MCP `infer` / `research`, job `d58275e0` / `75dde1f5` |
 | `z-image-turbo` | Text-to-image | TeeML | catalog neurons; example lock `0.047771 0G` | MCP `generate_image`, job `6905f25c` |
 
@@ -690,7 +651,7 @@ Counts from this tree, not estimates:
 |---|---|---|---|
 | Guard | `npm run guard` | **225 files** scanned | Banned fallback rails cannot land in `apps/`, `packages/`, `scripts/`, CI, or this README |
 | Typecheck | `npm run typecheck` | `tsc -b` | Workspace TypeScript |
-| Unit / integration (Vitest) | `npm test` | **224 tests**, **49 files** | Quote routing, MCP grants/OAuth, preflight, guards, risk, action proof, Merkle, Zia intent, LI.FI direction, inspect, ERC-8004 encoding, Flow classify, spend ledgers, Storage encrypt, Compute image helpers, receipt packets, web verify hashing |
+| Unit / integration (Vitest) | `npm test` | **225 tests**, **49 files** | Quote routing, MCP grants/OAuth, preflight, guards, risk, action proof, Merkle, Zia intent, LI.FI direction, inspect, ERC-8004 encoding, Flow classify, spend ledgers, Storage encrypt, Compute image helpers, receipt packets, web verify hashing |
 | Foundry | `npm run test:contracts` or `forge test --root packages/contracts` | **25 tests**, 5 suites | Escrow lock/release/refund, vault wealth/wrap/spend/pause/nonce/window, factory allowlists, registry once-write, EvidenceAnchor |
 | CI | `.github/workflows/ci.yml` | GitHub Actions on `main` | `npm ci --legacy-peer-deps` → guard → tsc → vitest → forge |
 

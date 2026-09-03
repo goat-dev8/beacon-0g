@@ -3,14 +3,14 @@
   "data": [
     {
       "address": "0x7DCFe6AEa70350C2090041524c9B4A9262DCe87D",
-      "canonical_id": "glm-5.2",
-      "model_id": "glm-5.2",
-      "name": "glm-5.2",
+      "canonical_id": "glm-5.3",
+      "model_id": "glm-5.3",
+      "name": "glm-5.3",
       "service_type": "chatbot",
       "is_healthy": true,
       "pricing": {
-        "prompt": "5490000000000",
-        "completion": "18300000000000",
+        "prompt": "4900000000000",
+        "completion": "16330000000000",
         "cached_prompt": "1098000000000"
       },
       "pricing_usd": {
@@ -27,9 +27,9 @@
     },
     {
       "address": "0xe4d9768112BFe24112e2E0433FE1F4F452fcB6eb",
-      "canonical_id": "glm-5.3",
-      "model_id": "glm-5.3",
-      "name": "glm-5.3",
+      "canonical_id": "glm-5.2",
+      "model_id": "glm-5.2",
+      "name": "glm-5.2",
       "service_type": "chatbot",
       "is_healthy": true,
       "pricing": {
