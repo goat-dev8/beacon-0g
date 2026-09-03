@@ -12,6 +12,131 @@ Source: [https://github.com/goat-dev8/beacon-0g](https://github.com/goat-dev8/be
 
 Beacon is the execution layer that lets an AI agent use 0G — Compute, Storage, Zia, and the chain — without ever holding the private key.
 
+## How to use Beacon
+
+Money path on the Safe page: **Wallet → Beacon Safe → Policy → AI → Execution → Receipt → Wallet**.
+
+Native 0G: [get.0g.ai](https://get.0g.ai/). Network: **0G Aristotle**, chain id **16661**, RPC `https://evmrpc.0g.ai`. Reown never asks for a seed phrase.
+
+| Step | Where | What you do |
+|---|---|---|
+| 1 | [get.0g.ai](https://get.0g.ai/) | Hold native 0G on Aristotle. |
+| 2 | [/start](https://beacon-0g.vercel.app/start) | Walk the money path (wallet, Safe, policy, TeeML, lock, execute, receipt). |
+| 3 | Any page → **Connect** | Connect a wallet on **0G Aristotle (16661)**. Wrong network is refused. |
+| 4 | [/flow/security](https://beacon-0g.vercel.app/flow/security) | **Create Beacon Safe** (`BeaconVaultFactory.createSafe`). One Safe per owner. |
+| 5 | Same page | **Deposit** native 0G into the Safe. Your wallet balance stays yours until you deposit. |
+| 6 | Same page | **Unlock Beacon Agent**. One wallet signature binds this browser tab. It is **not** a transaction and it does **not** move funds. After that, the allowlisted executor submits approved Safe actions without a MetaMask prompt per job. |
+| 7 | Same page | **Set spending policy**: per-tx cap, rolling window budget, session length, pause. Owner-only. Anyone can deposit; only the owner sets policy, withdraws, or pauses. |
+| 8 | [/flow](https://beacon-0g.vercel.app/flow) | Talk in Flow. Chips fill real intents: image, swap, inspect, analyze, bridge, cheap model, research, deny, history. |
+| 9 | [/flow/desk](https://beacon-0g.vercel.app/flow/desk) | Jobs desk: Image, Research, Coding, Documents, Analysis. Quote in neurons → lock → Compute → Storage → release or refund. |
+| 10 | [/flow/mcp](https://beacon-0g.vercel.app/flow/mcp) | **Connect Agent**. Scoped MCP grant (default 5 0G / tx, 20 0G / day, 7-day TTL). Cursor / Claude never receive the private key. |
+| 11 | [/verify/:id](https://beacon-0g.vercel.app/verify/d58275e0-7c92-4b26-a040-cba09c7cfe4f) | Open the forensic receipt. Browser `eth_call`s the registry. |
+
+Unlock once. Then Flow and Jobs can lock from the Safe inside policy. Pause anytime. Withdraw anytime.
+
+```mermaid
+flowchart LR
+  W[Connect wallet on 16661] --> S[Create Beacon Safe]
+  S --> D[Deposit native 0G]
+  D --> U[Unlock agent session]
+  U --> P[Set policy]
+  P --> F[Flow]
+  P --> J[Jobs]
+  P --> M[MCP Agents]
+  F --> V[Verify]
+  J --> V
+  M --> V
+```
+
+## Product map
+
+| Surface | URL | What it is |
+|---|---|---|
+| Landing | [/](https://beacon-0g.vercel.app/) | Positioning and entry |
+| Get started | [/start](https://beacon-0g.vercel.app/start) | Guided money path |
+| **Flow** | [/flow](https://beacon-0g.vercel.app/flow) | Chat desk. Intent → quote → policy → TeeML → execute → History |
+| **Jobs** | [/flow/desk](https://beacon-0g.vercel.app/flow/desk) | Catalog jobs with lock, proof, View result |
+| **Safe** | [/flow/security](https://beacon-0g.vercel.app/flow/security) | Create, deposit, unlock session, policy, pause, withdraw |
+| **Agents** | [/flow/mcp](https://beacon-0g.vercel.app/flow/mcp) | MCP grants, mcp.json, OAuth Authenticate, revoke |
+| Verify | `/verify/:jobId` | Public forensic proof |
+| Agent card | [/.well-known/agent-card.json](https://beacon-0g.vercel.app/.well-known/agent-card.json) | ERC-8004 registration v1 |
+
+## Flow — what you can do
+
+Flow is the primary desk. Type a sentence or tap a chip. The model does not decide spend. Preflight, Safe policy, and TeeML do.
+
+| Chip | Example prompt | What Beacon does |
+|---|---|---|
+| Image | Generate a lighthouse image and save the proof | Quote `z-image-turbo`, lock 0G, Compute, Storage, `/verify` |
+| Swap | Swap 0.2 0G to USDC.e | Live Zia quote; Safe wrap → approve → `exactInputSingle` if ALLOW |
+| Reverse | Swap 0.001 USDC.e to 0G | Live quote; Safe **execution** refused (`wealth()` is native+W0G) |
+| Swap book | What can I swap? | Zia tokens with a live factory pool |
+| Inspect | Inspect an Aristotle address | Live RPC bytecode, balance, selector hints. No invented ABI |
+| Inspect tx | Inspect a tx hash | Status, value, logs, explorer |
+| Thin book | Swap 0.01 0G to WBTC | Quote; refuse if amountOut is zero/thin |
+| Analyze | Analyze this wallet | RPC inspect, then optional paid TeeML job with that evidence |
+| Bridge | How do I bridge to 0G? | Official venues + live LI.FI where supported |
+| Bridge quote | Bridge 1 USDC from Base to 0G | Live LI.FI 8453 → 16661; user wallet signs |
+| Bridge out | Bridge 0.3 0G to USDC on Base | Live LI.FI 16661 → 8453; Safe cannot sign source |
+| Cheap | Run the cheapest verified model | Catalog `qwen3.8-flash` (proven), lock `0.001 0G` |
+| Research | Research 0G Storage proofs | Cheap TeeML job + Storage root |
+| Denied | Send 5 0G to a random address | Hard DENY. Funds moved **0 0G** |
+| Why | Show me why that was blocked | Last policy block, before funds moved |
+| Verify | Verify the last result | Proof URL + registry |
+| Cost | Show what the last job cost | Quote breakdown in native 0G |
+| Safe | Help me fund Beacon Safe and set spend policy | Deep-link to `/flow/security` |
+| Pause | Pause my Safe | Owner-signed `setPaused` on `/flow/security` |
+| History | What did I do last week? | Evidence memory: History + Storage roots + explorer txs. Empty evidence → no invented log |
+| Wallet errors | User rejected / wrong chain | Mapped failures (4001, 4902). Not faked success |
+
+History persists per wallet. Spend tools show **four ledgers** (escrow, Safe window, Zia slice, gas) for 1d / 7d / 30d — never summed. Live `windowSpent` is Today only.
+
+## Jobs
+
+[/flow/desk](https://beacon-0g.vercel.app/flow/desk) quotes from the live Router catalog, then runs the same lock → TeeML → Compute → Storage → settle path.
+
+| Service | Task | Model (proven / selected) |
+|---|---|---|
+| Image | image | `z-image-turbo` |
+| Research | cheap chat | `qwen3.8-flash` |
+| Coding | cheap chat | catalog cheap TeeTLS/TeeML |
+| Documents | cheap chat | catalog cheap TeeTLS/TeeML |
+| Analysis | inspect + cheap chat | RPC first, then TeeML brief |
+
+Every closed job gets **View result**, **View proof**, Storage root, lock/release/refund txs, action hash, and ERC-8004 feedback after real settlement.
+
+Proven Jobs/MCP examples:
+
+- Research/infer [`d58275e0`](https://beacon-0g.vercel.app/verify/d58275e0-7c92-4b26-a040-cba09c7cfe4f) · [`75dde1f5`](https://beacon-0g.vercel.app/verify/75dde1f5-4e34-4839-960c-2c7f382de640)
+- Image [`6905f25c`](https://beacon-0g.vercel.app/verify/6905f25c-e961-4c86-9df5-efdd31fb8cbc)
+- Analysis [`5d71852d`](https://beacon-0g.vercel.app/verify/5d71852d-b38f-42cd-8f53-f0fc3075c9c7)
+
+## Safe
+
+[/flow/security](https://beacon-0g.vercel.app/flow/security)
+
+- **Create** — factory deploys `BeaconNativeVault`, seeds allowlists (escrow `lockNative`, W0G wrap/unwrap/approve, Zia `exactInputSingle`).
+- **Deposit** — payable native 0G. Anyone may deposit; owner withdraws.
+- **Unlock session** — EIP-191 challenge/verify (`/v1/auth/safe-session/*`). Browser Bearer. Not a chain tx.
+- **Policy** — `maxSpendPerTx`, rolling window budget + seconds, session expiry. Executor cannot set policy.
+- **Pause** — owner `setPaused`. Executor cannot pause. MCP `pause_safe` tells you to open this page.
+- **Wealth** — native 0G + W0G. Wrap is not spend. A Zia swap that leaves W0G is spend.
+
+Demo Safe: [`0x6A3388D833C09a00DDbbD4e1a6c11C9623717A30`](https://chainscan.0g.ai/address/0x6A3388D833C09a00DDbbD4e1a6c11C9623717A30).
+
+## Agents (MCP)
+
+[/flow/mcp](https://beacon-0g.vercel.app/flow/mcp) · endpoint `https://beacon-0g-api.onrender.com/mcp`
+
+1. Connect wallet (owner of the Safe).
+2. Unlock the same agent session used on Safe.
+3. **Connect Agent** — pick Cursor / Claude / generic, scopes, caps (max 5 / 20 0G).
+4. Paste `mcp.json` or click **Authenticate** (OAuth PKCE).
+5. External agent calls `get_safe`, `get_policy`, `infer`, `swap`, `preflight_tx`, `bridge`, `verify_job`, …
+6. **Revoke** burns the grant. Tokens stop.
+
+**The agent never receives the private key.**
+
 ## What Beacon Is
 
 Beacon is a production desk on **0G Aristotle** (chain id **16661**). The unit of account is **native 0G**. Router catalog USD figures are display hints from `pricing`; they are not an FX oracle and they are not what the vault locks.
