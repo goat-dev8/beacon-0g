@@ -42,7 +42,7 @@ export function WhatIsBeacon() {
               0G strength, one conversation
             </h2>
             <p className="mt-5 max-w-lg text-lg leading-relaxed text-ink-muted">
-              Beacon does not invent a chain story. It runs yours on 0G: live Compute quotes, Safe policy, TeeML checks, Zia swaps, and explorer receipts you can open.
+              Beacon does not invent a chain story. It runs yours on 0G: live Compute quotes, Safe policy, TeeML checks, Zia swaps, directional LI.FI bridge quotes, and explorer receipts you can open.
             </p>
           </motion.div>
           <motion.div
@@ -140,8 +140,12 @@ export function ContractsSection() {
           {[
             ["Network", `${NETWORK.name} · chain ${NETWORK.chainId}`, null],
             ["Escrow", CONTRACTS.escrow, CONTRACTS.escrow],
+            ["Safe factory", CONTRACTS.safeFactory, CONTRACTS.safeFactory],
+            ["Demo Safe", CONTRACTS.agentVault, CONTRACTS.agentVault],
             ["W0G", CONTRACTS.w0g, CONTRACTS.w0g],
-            ["Job registry", CONTRACTS.jobRegistry, CONTRACTS.jobRegistry],
+            ["Zia router", CONTRACTS.ziaRouter, CONTRACTS.ziaRouter],
+            ["Receipt registry", CONTRACTS.jobRegistry, CONTRACTS.jobRegistry],
+            ["Evidence anchor", CONTRACTS.evidenceAnchor, CONTRACTS.evidenceAnchor],
           ].map(([k, v, href], i, arr) => (
             <div
               key={k}

@@ -35,6 +35,11 @@ export const WHY_ZEROG_ITEMS = [
     body: "Beacon decides if a swap is safe. Zia’s router executes. Thin books are refused out loud — no hidden DEX.",
   },
   {
+    id: "bridge",
+    title: "Bridges stay directional",
+    body: "Live LI.FI quotes native 0G → USDC on Base and USDC on Base or Ethereum → 0G. Beacon will not reverse the request. The Safe cannot sign the source chain. Unsupported routes fail closed.",
+  },
+  {
     id: "receipts",
     title: "Proof you can click",
     body: "/verify shows chain, quote, TEE, Storage root, and explorer links. No wallet required to inspect.",

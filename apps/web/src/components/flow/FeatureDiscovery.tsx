@@ -114,7 +114,7 @@ export const DISCOVERY_FEATURES: DiscoveryFeature[] = [
   {
     id: "bridge",
     title: "Bridge",
-    blurb: "Hub, Stargate, Interport, Portal. Not executable from the Aristotle Safe.",
+    blurb: "Live LI.FI quotes stay in the requested direction (0G → Base or Base → 0G). Safe cannot sign.",
     prompt: "How do I bridge to 0G?",
     icon: Landmark,
   },
